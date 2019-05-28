@@ -420,6 +420,31 @@ public class HttpUtil {
         }
 
         /**
+         * MD5签名 (目前不支持json格式)
+         *
+         * @param secretKey 签名秘钥
+         * @param keys 需要签名的参数
+         * @return
+         */
+        public Builder signWithMD5(String secretKey, String ...keys) {
+            if (Objects.isNull(keys)) {
+                String sign = SignUtil.createSign(this.params, secretKey);
+                this.params.put("sign", sign);
+            } else {
+                Map<String, Object> signMap = new HashMap<>(5);
+                for (String key : keys) {
+                    Object value = this.params.get(key);
+                    if (Objects.nonNull(value)) {
+                        signMap.put(key, value);
+                    }
+                }
+                String sign = SignUtil.createSign(signMap, secretKey);
+                this.params.put("sign", sign);
+            }
+            return this;
+        }
+
+        /**
          * http请求
          * @param url 请求地址
          * @param https 请求方法
