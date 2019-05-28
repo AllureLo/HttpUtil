@@ -1,8 +1,7 @@
-package com.callenled.http.util;
+package com.callenled.util;
 
-import com.callenled.http.Data;
 import com.callenled.http.bean.BaseResponseObject;
-import com.callenled.http.util.type.TypeBuilder;
+import com.callenled.util.type.TypeBuilder;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;

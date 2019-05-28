@@ -1,4 +1,4 @@
-package com.callenled.http.util.type;
+package com.callenled.util.type;
 
 /**
  * @Author: Callenld

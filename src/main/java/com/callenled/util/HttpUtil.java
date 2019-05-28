@@ -1,4 +1,4 @@
-package com.callenled.http.util;
+package com.callenled.util;
 
 import com.callenled.http.bean.BaseResponseObject;
 import org.apache.http.HttpStatus;

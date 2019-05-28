@@ -1,7 +1,7 @@
 package com.callenled.http;
 
 import com.callenled.http.bean.BaseResponseObject;
-import com.callenled.http.util.HttpUtil;
+import com.callenled.util.HttpUtil;
 
 /**
  * @Author: Callenld
