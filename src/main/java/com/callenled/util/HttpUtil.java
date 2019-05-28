@@ -243,10 +243,10 @@ public class HttpUtil {
      * @param params  请求参数
      * @return HttpPost
      */
-    private static HttpPost doPost(String url, Map<String, String> headers, Map<String, Object> params, String json, String contentType){
+    private static HttpPost doPost(String url, Map<String, String> headers, Map<String, Object> params, Object jsonObject, String contentType){
         // 创建httpPost
         HttpPost httpPost;
-        if (Objects.nonNull(json) && Objects.nonNull(params)) {
+        if (Objects.nonNull(jsonObject) && Objects.nonNull(params)) {
             // 创建访问的地址
             URI uri = getUrl(url, params);
             httpPost = new HttpPost(uri);
@@ -254,7 +254,8 @@ public class HttpUtil {
             httpPost = new HttpPost(url);
         }
         // 设置请求参数
-        if (Objects.nonNull(json)) {
+        if (Objects.nonNull(jsonObject)) {
+            String json = GsonUtil.gsonString(jsonObject);
             // 请求头
             httpPost.setHeader(HTTP.CONTENT_TYPE, "application/json");
             // 设置参数
@@ -300,7 +301,7 @@ public class HttpUtil {
         /**
          * 请求参数(json格式)
          */
-        private String json;
+        private Object jsonObject;
 
         /**
          * 请求头
@@ -364,8 +365,8 @@ public class HttpUtil {
         /**
          * 添加参数
          */
-        public Builder ajaxJson(String json) {
-            this.json = json;
+        public Builder ajaxJson(Object object) {
+            this.jsonObject = object;
             return this;
         }
 
@@ -452,7 +453,7 @@ public class HttpUtil {
          * @return HttpPost
          */
         public Builder doPost(String url){
-            this.httpRequest = HttpUtil.doPost(url, this.headers, this.params, this.json, this.contentType);
+            this.httpRequest = HttpUtil.doPost(url, this.headers, this.params, this.jsonObject, this.contentType);
             return doHttp();
         }
 
@@ -570,8 +571,8 @@ public class HttpUtil {
          *
          * @return
          */
-        public <T> BaseResponseObject<T> toResponseObject(Class<T> clazz) {
-            return GsonUtil.gsonToResponseObject(toJson(), clazz);
+        public <S, T extends BaseResponseObject> T toResponseObject(Class<? extends BaseResponseObject> clazz, Class<S> cls) {
+            return GsonUtil.gsonToResponseObject(toJson(), clazz, cls);
         }
 
         /**
@@ -579,8 +580,8 @@ public class HttpUtil {
          *
          * @return
          */
-        public <T> BaseResponseObject<List<T>> toResponseArray(Class<T> clazz) {
-            return GsonUtil.gsonToResponseArray(toJson(), clazz);
+        public <S, T extends BaseResponseObject<List<S>>> T toResponseArray(Class<? extends BaseResponseObject> clazz, Class<S> cls) {
+            return GsonUtil.gsonToResponseArray(toJson(), clazz, cls);
         }
     }
 }

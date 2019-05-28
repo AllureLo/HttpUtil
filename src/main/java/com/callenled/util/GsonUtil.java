@@ -2,12 +2,11 @@ package com.callenled.util;
 
 import com.callenled.http.bean.BaseResponseObject;
 import com.callenled.util.type.TypeBuilder;
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonParser;
+import com.google.gson.*;
 import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
 
+import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,15 +53,15 @@ public class GsonUtil {
     /**
      * 转成list
      * 解决泛型问题
-     * @param json
+     * @param gsonString
      * @param clazz
      * @param <T>
      * @return
      */
-    public static <T> List<T> gsonToArray(String json, Class<T> clazz) {
+    public static <T> List<T> gsonToArray(String gsonString, Class<T> clazz) {
         Gson gson = new Gson();
         List<T> list = new ArrayList<T>();
-        JsonArray array = new JsonParser().parse(json).getAsJsonArray();
+        JsonArray array = new JsonParser().parse(gsonString).getAsJsonArray();
         for(final JsonElement elem : array){
             list.add(gson.fromJson(elem, clazz));
         }
@@ -111,10 +110,10 @@ public class GsonUtil {
      * @param <T>
      * @return
      */
-    public static <T> BaseResponseObject<T> gsonToResponseObject(String gsonString, Class<T> clazz) {
+    public static <S, T extends BaseResponseObject> T gsonToResponseObject(String gsonString, Class<? extends BaseResponseObject> clazz, Class<S> cls) {
         Type type = TypeBuilder
-                .newInstance(BaseResponseObject.class)
-                .addTypeParam(clazz)
+                .newInstance(clazz)
+                .addTypeParam(cls)
                 .build();
         return gson.fromJson(gsonString, type);
     }
@@ -126,11 +125,11 @@ public class GsonUtil {
      * @param <T>
      * @return
      */
-    public static <T> BaseResponseObject<List<T>> gsonToResponseArray(String gsonString, Class<T> clazz) {
+    public static <S, T extends BaseResponseObject<List<S>>> T gsonToResponseArray(String gsonString, Class<? extends BaseResponseObject> clazz, Class<S> cls) {
         Type type = TypeBuilder
-                .newInstance(BaseResponseObject.class)
+                .newInstance(clazz)
                 .beginSubType(List.class)
-                .addTypeParam(clazz)
+                .addTypeParam(cls)
                 .endSubType()
                 .build();
         return gson.fromJson(gsonString, type);

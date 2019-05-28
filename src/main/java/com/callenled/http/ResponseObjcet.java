@@ -19,4 +19,11 @@ public class ResponseObjcet<T> extends BaseResponseObject<T> {
     public void setCode(int code) {
         this.code = code;
     }
+
+    @Override
+    public String toString() {
+        return "ResponseObjcet{" +
+                "code=" + code +
+                '}';
+    }
 }
