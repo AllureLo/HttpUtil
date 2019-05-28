@@ -1,5 +1,6 @@
-package com.callenld.util;
+package com.callenled.http.util;
 
+import com.callenled.http.bean.BaseResponseObject;
 import org.apache.http.HttpStatus;
 import org.apache.http.NameValuePair;
 import org.apache.http.StatusLine;
@@ -34,6 +35,21 @@ import java.util.*;
  * @Date: 19-3-19
  */
 public class HttpUtil {
+
+    /**
+     * http请求方式
+     */
+    public enum Https {
+        /**
+         * post
+         */
+        POST,
+
+        /**
+         * get
+         */
+        GET;
+    }
 
     /**
      * 编码格式 发送编码格式统一用 utf-8
@@ -88,6 +104,29 @@ public class HttpUtil {
     private volatile RequestConfig requestConfig;
 
     /**
+     * 从连接池中获取 CloseableHttpClient(不带证书)
+     */
+    private CloseableHttpClient getHttpClient() {
+        return HttpClients.custom()
+                .setDefaultRequestConfig(requestConfig)
+                .evictExpiredConnections()
+                .build();
+    }
+
+    /**
+     * 从连接池中获取 CloseableHttpClient(带证书)
+     *
+     * @param sslContext 证书
+     */
+    private CloseableHttpClient getHttpClient(SSLContext sslContext) {
+        return HttpClients.custom()
+                .setConnectionManager(getConnectionManager(sslContext))
+                .setDefaultRequestConfig(requestConfig)
+                .evictExpiredConnections()
+                .build();
+    }
+
+    /**
      * 获取SSL上下文对象,用来构建SSL Socket连接
      *
      * @param certPath   SSL文件
@@ -136,43 +175,24 @@ public class HttpUtil {
     }
 
     /**
-     * 从连接池中获取 CloseableHttpClient(不带证书)
-     */
-    private CloseableHttpClient getHttpClient() {
-        return HttpClients.custom()
-                .setDefaultRequestConfig(requestConfig)
-                .evictExpiredConnections()
-                .build();
-    }
-
-    /**
-     * 从连接池中获取 CloseableHttpClient(带证书)
-     *
-     * @param sslContext 证书
-     */
-    private CloseableHttpClient getHttpClient(SSLContext sslContext) {
-        return HttpClients.custom()
-                .setConnectionManager(getConnectionManager(sslContext))
-                .setDefaultRequestConfig(requestConfig)
-                .evictExpiredConnections()
-                .build();
-    }
-
-    /**
      * 创建访问的地址 拼接url
      *
      * @param url    基础url
      * @param params 请求参数
      * @return URI
      */
-    private URI getUrl(String url, Map<String, String> params) {
+    private static URI getUrl(String url, Map<String, Object> params) {
         // 创建访问的地址
         try {
             URIBuilder uriBuilder = new URIBuilder(url);
             if (Objects.nonNull(params)) {
-                Set<Map.Entry<String, String>> entrySet = params.entrySet();
-                for (Map.Entry<String, String> entry : entrySet) {
-                    uriBuilder.setParameter(entry.getKey(), entry.getValue());
+                Set<Map.Entry<String, Object>> entrySet = params.entrySet();
+                for (Map.Entry<String, Object> entry : entrySet) {
+                    String key = entry.getKey();
+                    Object value = entry.getValue();
+                    if (value != null) {
+                        uriBuilder.setParameter(key, String.valueOf(value));
+                    }
                 }
             }
             return uriBuilder.build();
@@ -187,7 +207,7 @@ public class HttpUtil {
      * @param httpRequest http请求
      * @param headers     请求头参数
      */
-    private HttpRequestBase setHeader(HttpRequestBase httpRequest, Map<String, String> headers) {
+    private static HttpRequestBase setHeader(HttpRequestBase httpRequest, Map<String, String> headers) {
         // 设置请求头
         if (Objects.nonNull(headers)) {
             Set<Map.Entry<String, String>> entrySet = headers.entrySet();
@@ -207,7 +227,7 @@ public class HttpUtil {
      * @param params  请求参数
      * @return HttpGet
      */
-    private HttpGet doGet(String url, Map<String, String> headers, Map<String, String> params){
+    private static HttpGet doGet(String url, Map<String, String> headers, Map<String, Object> params){
         // 创建访问的地址
         URI uri = getUrl(url, params);
         // 创建http对象
@@ -223,7 +243,7 @@ public class HttpUtil {
      * @param params  请求参数
      * @return HttpPost
      */
-    private HttpPost doPost(String url, Map<String, String> headers, Map<String, String> params, String json, String contentType){
+    private static HttpPost doPost(String url, Map<String, String> headers, Map<String, Object> params, String json, String contentType){
         // 创建httpPost
         HttpPost httpPost;
         if (Objects.nonNull(json) && Objects.nonNull(params)) {
@@ -246,11 +266,13 @@ public class HttpUtil {
         } else if (Objects.nonNull(params)) {
             // 设置参数
             List<NameValuePair> nvp = new ArrayList<>();
-            Set<Map.Entry<String, String>> entrySet = params.entrySet();
-            for (Map.Entry<String, String> entry : entrySet) {
-                String name = entry.getKey();
-                String value = entry.getValue();
-                nvp.add(new BasicNameValuePair(name, value));
+            Set<Map.Entry<String, Object>> entrySet = params.entrySet();
+            for (Map.Entry<String, Object> entry : entrySet) {
+                String key = entry.getKey();
+                Object value = entry.getValue();
+                if (value != null) {
+                    nvp.add(new BasicNameValuePair(key, String.valueOf(value)));
+                }
             }
             try {
                 httpPost.setEntity(new UrlEncodedFormEntity(nvp, CHARSET_UTF8));
@@ -273,7 +295,7 @@ public class HttpUtil {
         /**
          * 请求参数(key-value格式)
          */
-        private Map<String, String> params;
+        private Map<String, Object> params;
 
         /**
          * 请求参数(json格式)
@@ -313,18 +335,29 @@ public class HttpUtil {
         /**
          * 初始化
          */
-        public Builder() {
+        private Builder() {
             this.httpUtil = HttpUtil.getInstance();
         }
 
         /**
          * 添加参数
          */
-        public Builder addParams(String key, String value) {
+        public Builder addParams(String key, Object value) {
             if (Objects.isNull(this.params)) {
                 this.params = new HashMap<>(5);
             }
             this.params.put(key, value);
+            return this;
+        }
+
+        /**
+         * 添加参数
+         */
+        public Builder addParams(Map<String, Object> params) {
+            if (Objects.isNull(this.params)) {
+                this.params = new HashMap<>(5);
+            }
+            this.params.putAll(params);
             return this;
         }
 
@@ -386,13 +419,30 @@ public class HttpUtil {
         }
 
         /**
+         * http请求
+         * @param url 请求地址
+         * @param https 请求方法
+         * @return
+         */
+        public Builder doHttp(String url, Https https) {
+            switch (https) {
+                case POST:
+                    return doPost(url);
+                case GET:
+                    return doGet(url);
+                default:
+                    return this;
+            }
+        }
+
+        /**
          * get请求方法 带请求头和请求参数
          *
          * @param url     请求地址
          * @return HttpGet
          */
         public Builder doGet(String url){
-            this.httpRequest = this.httpUtil.doGet(url, this.headers, this.params);
+            this.httpRequest = HttpUtil.doGet(url, this.headers, this.params);
             return doHttp();
         }
 
@@ -402,68 +452,8 @@ public class HttpUtil {
          * @return HttpPost
          */
         public Builder doPost(String url){
-            this.httpRequest = this.httpUtil.doPost(url, this.headers, this.params, this.json, this.contentType);
+            this.httpRequest = HttpUtil.doPost(url, this.headers, this.params, this.json, this.contentType);
             return doHttp();
-        }
-
-        /**
-         * 返回数据
-         * @return
-         */
-        public byte[] toByte() {
-            try {
-                return EntityUtils.toByteArray(this.httpResponse.getEntity());
-            } catch (IOException e) {
-                throw new IllegalArgumentException(e.getMessage(), e);
-            } finally {
-                try {
-                    if (this.httpResponse != null) {
-                        this.httpResponse.close();
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-
-        /**
-         * 返回数据
-         * @return
-         */
-        public InputStream toInput() {
-            try {
-                return this.httpResponse.getEntity().getContent();
-            } catch (IOException e) {
-                throw new IllegalArgumentException(e.getMessage(), e);
-            } finally {
-                try {
-                    if (this.httpResponse != null) {
-                        this.httpResponse.close();
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-
-        /**
-         * 返回数据
-         * @return
-         */
-        public String toJson() {
-            try {
-                return EntityUtils.toString(this.httpResponse.getEntity());
-            } catch (IOException e) {
-                throw new IllegalArgumentException(e.getMessage(), e);
-            } finally {
-                try {
-                    if (this.httpResponse != null) {
-                        this.httpResponse.close();
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
         }
 
         /**
@@ -486,6 +476,111 @@ public class HttpUtil {
                 throw new IllegalArgumentException(e.getMessage(), e);
             }
             return this;
+        }
+
+        /**
+         * 返回数据 byte
+         * @return
+         */
+        public byte[] toByte() {
+            try {
+                return EntityUtils.toByteArray(this.httpResponse.getEntity());
+            } catch (IOException e) {
+                throw new IllegalArgumentException(e.getMessage(), e);
+            } finally {
+                try {
+                    if (this.httpResponse != null) {
+                        this.httpResponse.close();
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        /**
+         * 返回数据 InputStream
+         * @return
+         */
+        public InputStream toInput() {
+            try {
+                return this.httpResponse.getEntity().getContent();
+            } catch (IOException e) {
+                throw new IllegalArgumentException(e.getMessage(), e);
+            } finally {
+                try {
+                    if (this.httpResponse != null) {
+                        this.httpResponse.close();
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        /**
+         * 返回数据 String
+         * @return
+         */
+        public String toJson() {
+            try {
+                return EntityUtils.toString(this.httpResponse.getEntity(), CHARSET_UTF8);
+            } catch (IOException e) {
+                throw new IllegalArgumentException(e.getMessage(), e);
+            } finally {
+                try {
+                    if (this.httpResponse != null) {
+                        this.httpResponse.close();
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        /**
+         * 返回参数 map格式
+         *
+         * @return
+         */
+        public <T> Map<String, T> toMap() {
+            return GsonUtil.gsonToMaps(toJson());
+        }
+
+        /**
+         * 返回参数 对象
+         *
+         * @return
+         */
+        public <T> T toObject(Class<T> clazz) {
+            return GsonUtil.gsonToBean(toJson(), clazz);
+        }
+
+        /**
+         * 返回参数 list格式
+         *
+         * @return
+         */
+        public <T> List<T> toArray(Class<T> clazz) {
+            return GsonUtil.gsonToArray(toJson(), clazz);
+        }
+
+        /**
+         * 返回参数 response格式
+         *
+         * @return
+         */
+        public <T> BaseResponseObject<T> toResponseObject(Class<T> clazz) {
+            return GsonUtil.gsonToResponseObject(toJson(), clazz);
+        }
+
+        /**
+         * 返回参数 response array格式
+         *
+         * @return
+         */
+        public <T> BaseResponseObject<List<T>> toResponseArray(Class<T> clazz) {
+            return GsonUtil.gsonToResponseArray(toJson(), clazz);
         }
     }
 }
