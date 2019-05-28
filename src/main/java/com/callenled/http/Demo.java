@@ -11,7 +11,6 @@ public class Demo {
         ResponseObjcet<Data> responseObjcet = HttpUtil.builder()
                 .addParams("from", 2)
                 .doGet("https://app.teambook.cc/lindoor/common/question")
-                .signWithMD5("")
                 .toResponseObject(ResponseObjcet.class, Data.class);
         System.out.println(responseObjcet.toString());
     }
