@@ -7,6 +7,8 @@
     <groupId>com.callenled.toolsNs</groupId>
     <artifactId>http-util</artifactId>
     <version>1.0-SNAPSHOT</version>
+
+    <packaging>pom</packaging>
     <build>
         <plugins>
             <plugin>
