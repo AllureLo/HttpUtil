@@ -8,10 +8,12 @@ import com.callenled.util.HttpUtil;
  */
 public class Demo {
     public static void main(String[] args) {
-        ResponseObjcet<Data> responseObjcet = HttpUtil.builder()
-                .addParams("from", 2)
-                .doGet("https://app.teambook.cc/lindoor/common/question")
-                .toResponseObject(ResponseObjcet.class, Data.class);
-        System.out.println(responseObjcet.toString());
+        String result = HttpUtil.builder()
+                .addParams("random", "wefwefdsfsdfsfasdf")
+                .addParams("company", "盂县程子岩玉米种植专业合作社")
+                .signWithMD5("sdifjwoiejfowjdsfjsf")
+                .doPost("http://www.912688.com/spider/baiduWenku")
+                .toJson();
+        System.out.println(result);
     }
 }

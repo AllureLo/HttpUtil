@@ -427,7 +427,7 @@ public class HttpUtil {
          * @return
          */
         public Builder signWithMD5(String secretKey, String ...keys) {
-            if (Objects.isNull(keys)) {
+            if (keys == null || keys.length == 0) {
                 String sign = SignUtil.createSign(this.params, secretKey);
                 this.params.put("sign", sign);
             } else {
