@@ -1,9 +1,11 @@
 package com.callenled.util;
 
 import com.callenled.http.bean.BaseResponseObject;
+import com.callenled.http.exception.HttpUtilClosableException;
 import org.apache.http.HttpStatus;
 import org.apache.http.NameValuePair;
 import org.apache.http.StatusLine;
+import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.*;
@@ -133,13 +135,13 @@ public class HttpUtil {
      * @param certPass   SSL密码
      * @return SSL上下文对象
      */
-    public static SSLContext getSSLContext(String certPath, String certPass) {
+    public static SSLContext getSSLContext(String certPath, String certPass) throws HttpUtilClosableException {
         try {
             KeyStore keyStore = KeyStore.getInstance("PKCS12");
             // 证书文件流
             File file = new File(certPath);
             if (!file.exists()) {
-                throw new Exception("证书不存在");
+                throw new HttpUtilClosableException("证书不存在");
             }
             InputStream input = new FileInputStream(file);
             keyStore.load(input, certPass.toCharArray());
@@ -150,7 +152,7 @@ public class HttpUtil {
                     //加载服务端提供的truststore(如果服务器提供truststore的话就不用忽略对服务器端证书的校验了)
                     .loadKeyMaterial(keyStore, certPass.toCharArray()).build();
         } catch (Exception e) {
-            throw new IllegalArgumentException(e.getMessage(), e);
+            throw new HttpUtilClosableException(e.getMessage(), e);
         }
     }
 
@@ -181,7 +183,7 @@ public class HttpUtil {
      * @param params 请求参数
      * @return URI
      */
-    private static URI getUrl(String url, Map<String, Object> params) {
+    private static URI getUrl(String url, Map<String, Object> params) throws HttpUtilClosableException {
         // 创建访问的地址
         try {
             URIBuilder uriBuilder = new URIBuilder(url);
@@ -197,7 +199,7 @@ public class HttpUtil {
             }
             return uriBuilder.build();
         } catch (URISyntaxException e) {
-            throw new IllegalArgumentException(e.getMessage(), e);
+            throw new HttpUtilClosableException(e.getMessage(), e);
         }
     }
 
@@ -227,7 +229,7 @@ public class HttpUtil {
      * @param params  请求参数
      * @return HttpGet
      */
-    private static HttpGet doGet(String url, Map<String, String> headers, Map<String, Object> params){
+    private static HttpGet doGet(String url, Map<String, String> headers, Map<String, Object> params) throws HttpUtilClosableException {
         // 创建访问的地址
         URI uri = getUrl(url, params);
         // 创建http对象
@@ -243,7 +245,7 @@ public class HttpUtil {
      * @param params  请求参数
      * @return HttpPost
      */
-    private static HttpPost doPost(String url, Map<String, String> headers, Map<String, Object> params, Object jsonObject, String contentType){
+    private static HttpPost doPost(String url, Map<String, String> headers, Map<String, Object> params, Object jsonObject, String contentType) throws HttpUtilClosableException {
         // 创建httpPost
         HttpPost httpPost;
         if (Objects.nonNull(jsonObject) && Objects.nonNull(params)) {
@@ -278,7 +280,7 @@ public class HttpUtil {
             try {
                 httpPost.setEntity(new UrlEncodedFormEntity(nvp, CHARSET_UTF8));
             } catch (UnsupportedEncodingException e) {
-                throw new IllegalArgumentException(e.getMessage(), e);
+                throw new HttpUtilClosableException(e.getMessage(), e);
             }
         }
         return (HttpPost) setHeader(httpPost, headers);
@@ -414,9 +416,13 @@ public class HttpUtil {
          * @param certPass   SSL密码
          */
         public Builder getHttpClient(String certPath, String certPass) {
-            SSLContext sslContext = HttpUtil.getSSLContext(certPath, certPass);
-            this.httpClient = this.httpUtil.getHttpClient(sslContext);
-            return this;
+            try {
+                SSLContext sslContext = HttpUtil.getSSLContext(certPath, certPass);
+                return getHttpClient(sslContext);
+            } catch (HttpUtilClosableException e) {
+                e.printStackTrace();
+            }
+            return getHttpClient();
         }
 
         /**
@@ -450,7 +456,7 @@ public class HttpUtil {
          * @param https 请求方法
          * @return
          */
-        public Builder doHttp(String url, Https https) {
+        public Builder doHttp(String url, Https https) throws HttpUtilClosableException {
             switch (https) {
                 case POST:
                     return doPost(url);
@@ -467,8 +473,12 @@ public class HttpUtil {
          * @param url     请求地址
          * @return HttpGet
          */
-        public Builder doGet(String url){
-            this.httpRequest = HttpUtil.doGet(url, this.headers, this.params);
+        public Builder doGet(String url) {
+            try {
+                this.httpRequest = HttpUtil.doGet(url, this.headers, this.params);
+            } catch (HttpUtilClosableException e) {
+                e.printStackTrace();
+            }
             return doHttp();
         }
 
@@ -477,8 +487,12 @@ public class HttpUtil {
          * @param url 请求地址
          * @return HttpPost
          */
-        public Builder doPost(String url){
-            this.httpRequest = HttpUtil.doPost(url, this.headers, this.params, this.jsonObject, this.contentType);
+        public Builder doPost(String url) {
+            try {
+                this.httpRequest = HttpUtil.doPost(url, this.headers, this.params, this.jsonObject, this.contentType);
+            } catch (HttpUtilClosableException e) {
+                e.printStackTrace();
+            }
             return doHttp();
         }
 
@@ -496,12 +510,28 @@ public class HttpUtil {
                 //响应状态
                 StatusLine status = this.httpResponse.getStatusLine();
                 if (status.getStatusCode() != HttpStatus.SC_OK) {
-                    throw new IllegalArgumentException(status.getReasonPhrase());
+                    throw new HttpUtilClosableException(status.getReasonPhrase());
                 }
-            } catch (IOException e) {
-                throw new IllegalArgumentException(e.getMessage(), e);
+            } catch (IOException | HttpUtilClosableException e) {
+                e.printStackTrace();
             }
             return this;
+        }
+
+        /**
+         * 关闭资源
+         */
+        private void close() {
+            try {
+                if (this.httpClient != null) {
+                    this.httpClient.close();
+                }
+                if (this.httpResponse != null) {
+                    this.httpResponse.close();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
 
         /**
@@ -509,19 +539,17 @@ public class HttpUtil {
          * @return
          */
         public byte[] toByte() {
+            byte[] bytes = null;
             try {
-                return EntityUtils.toByteArray(this.httpResponse.getEntity());
-            } catch (IOException e) {
-                throw new IllegalArgumentException(e.getMessage(), e);
-            } finally {
-                try {
-                    if (this.httpResponse != null) {
-                        this.httpResponse.close();
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
+                if (this.httpResponse != null) {
+                    bytes = EntityUtils.toByteArray(this.httpResponse.getEntity());
                 }
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                close();
             }
+            return bytes;
         }
 
         /**
@@ -529,19 +557,17 @@ public class HttpUtil {
          * @return
          */
         public InputStream toInput() {
+            InputStream input = null;
             try {
-                return this.httpResponse.getEntity().getContent();
-            } catch (IOException e) {
-                throw new IllegalArgumentException(e.getMessage(), e);
-            } finally {
-                try {
-                    if (this.httpResponse != null) {
-                        this.httpResponse.close();
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
+                if (this.httpResponse != null) {
+                    input = this.httpResponse.getEntity().getContent();
                 }
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                close();
             }
+            return input;
         }
 
         /**
@@ -549,19 +575,17 @@ public class HttpUtil {
          * @return
          */
         public String toJson() {
+            String json = "";
             try {
-                return EntityUtils.toString(this.httpResponse.getEntity(), CHARSET_UTF8);
-            } catch (IOException e) {
-                throw new IllegalArgumentException(e.getMessage(), e);
-            } finally {
-                try {
-                    if (this.httpResponse != null) {
-                        this.httpResponse.close();
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
+                if (this.httpResponse != null) {
+                    json = EntityUtils.toString(this.httpResponse.getEntity(), CHARSET_UTF8);
                 }
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                close();
             }
+            return json;
         }
 
         /**

@@ -9,9 +9,7 @@ import com.callenled.util.HttpUtil;
 public class Demo {
     public static void main(String[] args) {
         String result = HttpUtil.builder()
-                .addParams("param", "param")
-                .signWithMD5("0000000000000000000000")
-                .doPost("http://xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+                .doGet("https://www.baidu.com")
                 .toJson();
         System.out.println(result);
     }
