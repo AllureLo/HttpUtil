@@ -9,10 +9,9 @@ import com.callenled.util.HttpUtil;
 public class Demo {
     public static void main(String[] args) {
         String result = HttpUtil.builder()
-                .addParams("random", "wefwefdsfsdfsfasdf")
-                .addParams("company", "盂县程子岩玉米种植专业合作社")
-                .signWithMD5("sdifjwoiejfowjdsfjsf")
-                .doPost("http://www.912688.com/spider/baiduWenku")
+                .addParams("param", "param")
+                .signWithMD5("0000000000000000000000")
+                .doPost("http://xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
                 .toJson();
         System.out.println(result);
     }
