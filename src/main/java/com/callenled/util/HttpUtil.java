@@ -2,12 +2,10 @@ package com.callenled.util;
 
 import com.callenled.http.bean.BaseResponseObject;
 import com.callenled.http.exception.HttpUtilClosableException;
-import com.sun.org.apache.regexp.internal.RE;
 import org.apache.http.HttpStatus;
 import org.apache.http.NameValuePair;
 import org.apache.http.NoHttpResponseException;
 import org.apache.http.StatusLine;
-import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpRequestRetryHandler;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.UrlEncodedFormEntity;

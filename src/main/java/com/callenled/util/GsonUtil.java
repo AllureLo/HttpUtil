@@ -4,9 +4,6 @@ import com.callenled.http.bean.BaseResponseObject;
 import com.callenled.util.type.TypeBuilder;
 import com.google.gson.*;
 import com.google.gson.reflect.TypeToken;
-import com.google.gson.stream.JsonReader;
-
-import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
