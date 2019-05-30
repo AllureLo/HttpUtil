@@ -4,9 +4,8 @@ import com.callenled.http.bean.BaseResponseObject;
 import com.callenled.http.exception.HttpUtilClosableException;
 import org.apache.http.HttpStatus;
 import org.apache.http.NameValuePair;
-import org.apache.http.NoHttpResponseException;
 import org.apache.http.StatusLine;
-import org.apache.http.client.HttpRequestRetryHandler;
+import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.*;
@@ -19,7 +18,6 @@ import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.DefaultHttpRequestRetryHandler;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.message.BasicNameValuePair;
@@ -29,7 +27,6 @@ import org.apache.http.util.EntityUtils;
 
 import javax.net.ssl.SSLContext;
 import java.io.*;
-import java.net.SocketException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.*;
@@ -39,7 +36,7 @@ import java.util.*;
  * @Author: Callenld
  * @Date: 19-3-19
  */
-public class HttpUtil {
+public class HttpUtil1 {
 
     /**
      * http请求方式
@@ -64,12 +61,12 @@ public class HttpUtil {
     /**
      * 设置建立连接超时时间 单位 毫秒(ms)
      */
-    private static final int CONNECT_TIMEOUT = 10000;
+    private static final int CONNECT_TIMEOUT = 6000;
 
     /**
-     * 设置数据传输处理时间 单位 毫秒(ms)
+     * 设置响应时间 单位 毫秒(ms)
      */
-    private static final int SOCKET_TIMEOUT = 10000;
+    private static final int SOCKET_TIMEOUT = 6000;
 
     /**
      * 设置请求时间 单位 毫秒(ms)
@@ -77,14 +74,60 @@ public class HttpUtil {
     private static final int CONNECT_REQUEST_TIMEOUT = 1000;
 
     /**
-     * 连接池最大并发连接数
+     * 单列模式
      */
-    private static final int MAX_TOTAL = 128;
+    private volatile static HttpUtil1 instance = null;
 
     /**
-     * 单路由最大并发数
+     * 单列模式
      */
-    private static final int MAX_PER_ROUTE = 128;
+    private static HttpUtil1 getInstance() {
+        if (Objects.isNull(instance)) {
+            instance = new HttpUtil1();
+        }
+        return instance;
+    }
+
+    /**
+     * 私有化构造函数
+     */
+    private HttpUtil1() {
+        //请求器的配置
+        requestConfig = RequestConfig.custom()
+                .setConnectTimeout(CONNECT_TIMEOUT)
+                .setSocketTimeout(SOCKET_TIMEOUT)
+                .setConnectionRequestTimeout(CONNECT_REQUEST_TIMEOUT)
+                .build();
+    }
+
+    /**
+     * 请求器的配置
+     */
+    private volatile RequestConfig requestConfig;
+
+    /**
+     * 从连接池中获取 CloseableHttpClient(不带证书)
+     */
+    private CloseableHttpClient getHttpClient() {
+        return HttpClients.custom()
+                .setConnectionManager(getConnectionManager())
+                .setDefaultRequestConfig(requestConfig)
+                .evictExpiredConnections()
+                .build();
+    }
+
+    /**
+     * 从连接池中获取 CloseableHttpClient(带证书)
+     *
+     * @param sslContext 证书
+     */
+    private CloseableHttpClient getHttpClient(SSLContext sslContext) {
+        return HttpClients.custom()
+                .setConnectionManager(getConnectionManager(sslContext))
+                .setDefaultRequestConfig(requestConfig)
+                .evictExpiredConnections()
+                .build();
+    }
 
     /**
      * 获取SSL上下文对象,用来构建SSL Socket连接
@@ -115,60 +158,21 @@ public class HttpUtil {
     }
 
     /**
-     * httpclient连接配置
-     *
-     * @return
-     */
-    private static RequestConfig getRequestConfig() {
-        return getRequestConfig(CONNECT_TIMEOUT, SOCKET_TIMEOUT);
-    }
-
-    /**
-     * httpclient连接配置
-     *
-     * @param connect 建立连接超时时间
-     * @param socket 数据传输处理时间
-     * @return
-     */
-    private static RequestConfig getRequestConfig(int connect, int socket) {
-        return RequestConfig.custom()
-                //建立连接的timeout时间
-                .setConnectTimeout(connect)
-                //数据传输处理时间 tcp
-                .setSocketTimeout(socket)
-                //从连接池中后去连接的timeout时间
-                .setConnectionRequestTimeout(CONNECT_REQUEST_TIMEOUT)
-                .setExpectContinueEnabled(true)
-                //重点参数，在请求之前校验链接是否有效
-                .setStaleConnectionCheckEnabled(true)
-                .build();
-    }
-
-    /**
      * httpclient连接池的配置
-     *
-     * @param maxTotal 设置最大连接数
-     * @param maxPerRoute 设置单路由链接数
-     * @return
      */
-    private static PoolingHttpClientConnectionManager getConnectionManager(int maxTotal, int maxPerRoute) {
+    private PoolingHttpClientConnectionManager getConnectionManager() {
         PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
-        //设置最大连接数
-        connectionManager.setMaxTotal(maxTotal);
-        //设置单路由链接数
-        connectionManager.setDefaultMaxPerRoute(maxPerRoute);
+        //最大连接数128
+        connectionManager.setMaxTotal(256);
+        //路由链接数128
+        connectionManager.setDefaultMaxPerRoute(128);
         return connectionManager;
     }
 
     /**
      * httpclient连接池的配置
-     *
-     * @param sslContext SSL证书
-     * @param maxTotal 设置最大连接数
-     * @param maxPerRoute 设置单路由链接数
-     * @return
      */
-    private static PoolingHttpClientConnectionManager getConnectionManager(SSLContext sslContext, int maxTotal, int maxPerRoute) {
+    private PoolingHttpClientConnectionManager getConnectionManager(SSLContext sslContext) {
         SSLConnectionSocketFactory csf = new SSLConnectionSocketFactory(sslContext
                 ,null, null, NoopHostnameVerifier.INSTANCE);
 
@@ -178,51 +182,11 @@ public class HttpUtil {
                 .build();
 
         PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager(registry);
-        //设置最大连接数
-        connectionManager.setMaxTotal(maxTotal);
-        //设置单路由链接数
-        connectionManager.setDefaultMaxPerRoute(maxPerRoute);
+        //最大连接数128
+        connectionManager.setMaxTotal(256);
+        //路由链接数128
+        connectionManager.setDefaultMaxPerRoute(128);
         return connectionManager;
-    }
-
-    /**
-     * 自定义策略 重连
-     *
-     * @param count 重连次数
-     * @return
-     */
-    private static HttpRequestRetryHandler getRetryHandler(int count) {
-        return (exception, executionCount, context) -> {
-            if (executionCount > count) {
-                return false;
-            }
-            if (exception instanceof NoHttpResponseException) {
-                return true;
-            }
-            else {
-                return exception instanceof SocketException;
-            }
-        };
-    }
-
-    /**
-     * 从连接池中获取 CloseableHttpClient(不带证书)
-     */
-    private static CloseableHttpClient getHttpClient(RequestConfig requestConfig, PoolingHttpClientConnectionManager connectionManager) {
-        return getHttpClient(requestConfig, connectionManager, new DefaultHttpRequestRetryHandler(0, false));
-    }
-
-    /**
-     * 从连接池中获取 CloseableHttpClient(不带证书)
-     */
-    private static CloseableHttpClient getHttpClient(RequestConfig requestConfig, PoolingHttpClientConnectionManager connectionManager,
-                                                     HttpRequestRetryHandler retryHandler) {
-        return HttpClients.custom()
-                .setDefaultRequestConfig(requestConfig)
-                .setConnectionManager(connectionManager)
-                .setRetryHandler(retryHandler)
-                .evictExpiredConnections()
-                .build();
     }
 
     /**
@@ -236,7 +200,7 @@ public class HttpUtil {
         // 创建访问的地址
         try {
             URIBuilder uriBuilder = new URIBuilder(url);
-            if (params != null) {
+            if (Objects.nonNull(params)) {
                 Set<Map.Entry<String, Object>> entrySet = params.entrySet();
                 for (Map.Entry<String, Object> entry : entrySet) {
                     String key = entry.getKey();
@@ -260,7 +224,7 @@ public class HttpUtil {
      */
     private static HttpRequestBase setHeader(HttpRequestBase httpRequest, Map<String, String> headers) {
         // 设置请求头
-        if (headers != null) {
+        if (Objects.nonNull(headers)) {
             Set<Map.Entry<String, String>> entrySet = headers.entrySet();
             for (Map.Entry<String, String> entry : entrySet) {
                 // 设置请求头到 HttpRequestBase
@@ -297,7 +261,7 @@ public class HttpUtil {
     private static HttpPost doPost(String url, Map<String, String> headers, Map<String, Object> params, Object jsonObject, String contentType) throws HttpUtilClosableException {
         // 创建httpPost
         HttpPost httpPost;
-        if (jsonObject != null && params != null) {
+        if (Objects.nonNull(jsonObject) && Objects.nonNull(params)) {
             // 创建访问的地址
             URI uri = getUrl(url, params);
             httpPost = new HttpPost(uri);
@@ -305,17 +269,17 @@ public class HttpUtil {
             httpPost = new HttpPost(url);
         }
         // 设置请求参数
-        if (jsonObject != null) {
+        if (Objects.nonNull(jsonObject)) {
             String json = GsonUtil.gsonString(jsonObject);
             // 请求头
             httpPost.setHeader(HTTP.CONTENT_TYPE, "application/json");
             // 设置参数
             StringEntity entity = new StringEntity(json, CHARSET_UTF8);
-            if (contentType != null) {
+            if (Objects.nonNull(contentType)) {
                 entity.setContentType(contentType);
             }
             httpPost.setEntity(entity);
-        } else if (params != null) {
+        } else if (Objects.nonNull(params)) {
             // 设置参数
             List<NameValuePair> nvp = new ArrayList<>();
             Set<Map.Entry<String, Object>> entrySet = params.entrySet();
@@ -335,154 +299,8 @@ public class HttpUtil {
         return (HttpPost) setHeader(httpPost, headers);
     }
 
-    /**
-     * http全局配置
-     *
-     * @return
-     */
-    public static HttpConfig config() {
-        return new HttpConfig(MAX_TOTAL, MAX_PER_ROUTE);
-    }
-
-    /**
-     * http全局配置
-     *
-     * @param maxTotal 连接池最大连接数量
-     * @param maxPerRoute 单路由最大并发数
-     * @return
-     */
-    public static HttpConfig config(int maxTotal, int maxPerRoute) {
-        return new HttpConfig(maxTotal, maxPerRoute);
-    }
-
-    /**
-     * 默认配置
-     *
-     * @return
-     */
     public static Builder builder() {
-        //默认连接时间20000
-        RequestConfig requestConfig = HttpUtil.getRequestConfig();
-        //默认开启最大连接数128
-        PoolingHttpClientConnectionManager connectionManager = HttpUtil.getConnectionManager(MAX_TOTAL, MAX_PER_ROUTE);
-        return new Builder(HttpUtil.getHttpClient(requestConfig, connectionManager));
-    }
-
-    public static class HttpConfig {
-        /**
-         * httpclient全局配置
-         */
-        private RequestConfig requestConfig;
-
-        /**
-         * httpclient连接池的配置
-         */
-        private PoolingHttpClientConnectionManager connectionManager;
-
-        /**
-         * 连接策略
-         */
-        private HttpRequestRetryHandler retryHandler;
-
-        /**
-         * 连接池最大连接数量
-         */
-        private int maxTotal;
-
-        /**
-         * 单路由最大并发数
-         */
-        private int maxPerRoute;
-
-        private HttpConfig(int maxTotal, int maxPerRoute) {
-            this.maxTotal = maxTotal;
-            this.maxPerRoute = maxPerRoute;
-        }
-
-        /**
-         * 设置链接超时
-         *
-         * @param connect 链接时间
-         * @param socket 传输时间
-         * @return
-         */
-        public HttpConfig setTimeout(int connect, int socket) {
-            this.requestConfig = HttpUtil.getRequestConfig(connect, socket);
-            return this;
-        }
-
-        /**
-         * 从连接池中获取 CloseableHttpClient(带证书)
-         *
-         * @param sslContext 证书
-         */
-        public HttpConfig setSSLContext(SSLContext sslContext) {
-            if (sslContext == null) {
-                try {
-                    throw new HttpUtilClosableException("证书为空");
-                } catch (HttpUtilClosableException e) {
-                    e.printStackTrace();
-                }
-            }
-            this.connectionManager = HttpUtil.getConnectionManager(sslContext, this.maxTotal, this.maxPerRoute);
-            return this;
-        }
-
-        /**
-         * 从连接池中获取 CloseableHttpClient(带证书)
-         *
-         * @param certPath   SSL文件
-         * @param certPass   SSL密码
-         */
-        public HttpConfig setSSLContext(String certPath, String certPass) {
-            SSLContext sslContext = null;
-            try {
-                sslContext = HttpUtil.getSSLContext(certPath, certPass);
-            } catch (HttpUtilClosableException e) {
-                e.printStackTrace();
-            }
-            return setSSLContext(sslContext);
-        }
-
-        /**
-         * 开启重连
-         *
-         * @return
-         */
-        public HttpConfig setOnRetryTimes() {
-            this.retryHandler = HttpUtil.getRetryHandler(3);
-            return this;
-        }
-
-        /**
-         * 开启重连
-         *
-         * @return
-         */
-        public HttpConfig setOnRetryTimes(int count) {
-            this.retryHandler = HttpUtil.getRetryHandler(count);
-            return this;
-        }
-
-        /**
-         * 开启http请求
-         *
-         * @return
-         */
-        public Builder builder() {
-            //请求client
-            if (this.requestConfig == null) {
-                this.requestConfig = HttpUtil.getRequestConfig();
-            }
-            if (this.connectionManager == null) {
-                this.connectionManager = HttpUtil.getConnectionManager(this.maxTotal, this.maxPerRoute);
-            }
-            if (this.retryHandler == null) {
-                this.retryHandler = new DefaultHttpRequestRetryHandler(0, false);
-            }
-            return new Builder(HttpUtil.getHttpClient(this.requestConfig, this.connectionManager, this.retryHandler));
-        }
-
+        return new Builder();
     }
 
     /**
@@ -511,7 +329,12 @@ public class HttpUtil {
         private String contentType;
 
         /**
-         * httpclient客户端
+         * http请求方式
+         */
+        private HttpUriRequest httpRequest;
+
+        /**
+         * http请求连接
          */
         private CloseableHttpClient httpClient;
 
@@ -520,19 +343,23 @@ public class HttpUtil {
          */
         private CloseableHttpResponse httpResponse;
 
-        private Builder(CloseableHttpClient httpClient) {
-            this.httpClient = httpClient;
+        /**
+         * httpUtil工具类实例化
+         */
+        private HttpUtil1 httpUtil;
+
+        /**
+         * 初始化
+         */
+        private Builder() {
+            this.httpUtil = HttpUtil1.getInstance();
         }
 
         /**
          * 添加参数
-         *
-         * @param key 键
-         * @param value 值
-         * @return
          */
         public Builder addParams(String key, Object value) {
-            if (this.params == null) {
+            if (Objects.isNull(this.params)) {
                 this.params = new HashMap<>(5);
             }
             this.params.put(key, value);
@@ -541,12 +368,9 @@ public class HttpUtil {
 
         /**
          * 添加参数
-         *
-         * @param params 参数
-         * @return
          */
         public Builder addParams(Map<String, Object> params) {
-            if (this.params == null) {
+            if (Objects.isNull(this.params)) {
                 this.params = new HashMap<>(5);
             }
             this.params.putAll(params);
@@ -555,9 +379,6 @@ public class HttpUtil {
 
         /**
          * 添加参数
-         *
-         * @param object 参数
-         * @return
          */
         public Builder ajaxJson(Object object) {
             this.jsonObject = object;
@@ -566,13 +387,9 @@ public class HttpUtil {
 
         /**
          * 添加请求头
-         *
-         * @param key 键
-         * @param value 值
-         * @return
          */
         public Builder addHeaders(String key, String value) {
-            if (this.headers == null) {
+            if (Objects.isNull(this.headers)) {
                 this.headers = new HashMap<>(5);
             }
             this.headers.put(key, value);
@@ -580,14 +397,45 @@ public class HttpUtil {
         }
 
         /**
-         * 设置请求格式
-         *
-         * @param contentType 请求格式
-         * @return
+         * 设置返回格式
          */
         public Builder setContentType(String contentType) {
             this.contentType = contentType;
             return this;
+        }
+
+        /**
+         * 从连接池中获取 CloseableHttpClient(不带证书)
+         */
+        public Builder getHttpClient() {
+            this.httpClient = this.httpUtil.getHttpClient();
+            return this;
+        }
+
+        /**
+         * 从连接池中获取 CloseableHttpClient(带证书)
+         *
+         * @param sslContext 证书
+         */
+        public Builder getHttpClient(SSLContext sslContext) {
+            this.httpClient = this.httpUtil.getHttpClient(sslContext);
+            return this;
+        }
+
+        /**
+         * 从连接池中获取 CloseableHttpClient(带证书)
+         *
+         * @param certPath   SSL文件
+         * @param certPass   SSL密码
+         */
+        public Builder getHttpClient(String certPath, String certPass) {
+            try {
+                SSLContext sslContext = HttpUtil.getSSLContext(certPath, certPass);
+                return getHttpClient(sslContext);
+            } catch (HttpUtilClosableException e) {
+                e.printStackTrace();
+            }
+            return getHttpClient();
         }
 
         /**
@@ -605,7 +453,7 @@ public class HttpUtil {
                 Map<String, Object> signMap = new HashMap<>(5);
                 for (String key : keys) {
                     Object value = this.params.get(key);
-                    if (value != null) {
+                    if (Objects.nonNull(value)) {
                         signMap.put(key, value);
                     }
                 }
@@ -639,13 +487,12 @@ public class HttpUtil {
          * @return HttpGet
          */
         public Builder doGet(String url) {
-            HttpUriRequest httpRequest = null;
             try {
-                httpRequest = HttpUtil.doGet(url, this.headers, this.params);
+                this.httpRequest = HttpUtil1.doGet(url, this.headers, this.params);
             } catch (HttpUtilClosableException e) {
                 e.printStackTrace();
             }
-            return doHttp(httpRequest);
+            return doHttp();
         }
 
         /**
@@ -654,26 +501,25 @@ public class HttpUtil {
          * @return HttpPost
          */
         public Builder doPost(String url) {
-            HttpUriRequest httpRequest = null;
             try {
-                httpRequest = HttpUtil.doPost(url, this.headers, this.params, this.jsonObject, this.contentType);
+                this.httpRequest = HttpUtil1.doPost(url, this.headers, this.params, this.jsonObject, this.contentType);
             } catch (HttpUtilClosableException e) {
                 e.printStackTrace();
             }
-            return doHttp(httpRequest);
+            return doHttp();
         }
 
         /**
          * http请求
          * @return
          */
-        private Builder doHttp(HttpUriRequest httpRequest) {
+        private Builder doHttp() {
             try {
-                if (httpRequest == null) {
-                    throw new HttpUtilClosableException("HttpUriRequest is null");
+                //请求client
+                if (Objects.isNull(this.httpClient)) {
+                    this.httpClient = this.httpUtil.getHttpClient();
                 }
-                //响应
-                this.httpResponse = this.httpClient.execute(httpRequest);
+                this.httpResponse = this.httpClient.execute(this.httpRequest);
                 //响应状态
                 StatusLine status = this.httpResponse.getStatusLine();
                 if (status.getStatusCode() != HttpStatus.SC_OK) {
@@ -683,6 +529,22 @@ public class HttpUtil {
                 e.printStackTrace();
             }
             return this;
+        }
+
+        /**
+         * 关闭资源
+         */
+        private void close() {
+            try {
+                if (this.httpClient != null) {
+                    this.httpClient.close();
+                }
+                if (this.httpResponse != null) {
+                    this.httpResponse.close();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
 
         /**
@@ -698,7 +560,7 @@ public class HttpUtil {
             } catch (IOException e) {
                 e.printStackTrace();
             } finally {
-                this.close();
+                close();
             }
             return bytes;
         }
@@ -716,7 +578,7 @@ public class HttpUtil {
             } catch (IOException e) {
                 e.printStackTrace();
             } finally {
-                this.close();
+                close();
             }
             return input;
         }
@@ -734,7 +596,7 @@ public class HttpUtil {
             } catch (IOException e) {
                 e.printStackTrace();
             } finally {
-                this.close();
+                close();
             }
             return json;
         }
@@ -783,33 +645,6 @@ public class HttpUtil {
         public <S, T extends BaseResponseObject<List<S>>> T toResponseArray(Class<? extends BaseResponseObject> clazz, Class<S> cls) {
             return GsonUtil.gsonToResponseArray(toJson(), clazz, cls);
         }
-
-        /**
-         * 释放资源
-         */
-        private void close() {
-            if (this.params != null) {
-                this.params = null;
-            }
-            if (this.jsonObject != null) {
-                this.jsonObject = null;
-            }
-            if (this.headers != null) {
-                this.headers = null;
-            }
-            if (this.httpClient != null) {
-                this.contentType = null;
-            }
-            if (this.httpClient != null) {
-                this.httpClient = null;
-            }
-            if (this.httpResponse != null) {
-                try {
-                    this.httpResponse.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
     }
 }
+
