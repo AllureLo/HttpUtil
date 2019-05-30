@@ -8,8 +8,13 @@ import com.callenled.util.HttpUtil;
  */
 public class Demo {
     public static void main(String[] args) {
-        String result = HttpUtil.builder()
-                .doGet("https://www.baidu.com")
+        String result = HttpUtil.config(100, 100)
+                .setTimeout(20000, 20000)
+                .setSSLContext("", "")
+                .setOnRetryTimes()
+                .builder()
+                .addParams("https", "xxxxxxxxx")
+                .doGet("wwwwwwwwwwww")
                 .toJson();
         System.out.println(result);
     }
