@@ -2,6 +2,7 @@ package com.callenled.util;
 
 import com.callenled.http.bean.BaseResponseObject;
 import com.callenled.http.exception.HttpUtilClosableException;
+import com.sun.org.apache.regexp.internal.RE;
 import org.apache.http.HttpStatus;
 import org.apache.http.NameValuePair;
 import org.apache.http.StatusLine;
@@ -61,17 +62,27 @@ public class HttpUtil {
     /**
      * 设置建立连接超时时间 单位 毫秒(ms)
      */
-    private static final int CONNECT_TIMEOUT = 6000;
+    private static final int CONNECT_TIMEOUT = 60000;
 
     /**
      * 设置响应时间 单位 毫秒(ms)
      */
-    private static final int SOCKET_TIMEOUT = 6000;
+    private static final int SOCKET_TIMEOUT = 60000;
 
     /**
      * 设置请求时间 单位 毫秒(ms)
      */
-    private static final int CONNECT_REQUEST_TIMEOUT = 1000;
+    private static final int CONNECT_REQUEST_TIMEOUT = 10000;
+
+    /**
+     * 连接池最大并发连接数
+     */
+    private static final int MAX_TOTAL = 256;
+
+    /**
+     * 单路由最大并发数
+     */
+    private static final int MAX_PER_ROUTE = 128;
 
     /**
      * 单列模式
@@ -82,8 +93,12 @@ public class HttpUtil {
      * 单列模式
      */
     private static HttpUtil getInstance() {
-        if (Objects.isNull(instance)) {
-            instance = new HttpUtil();
+        if (instance == null) {
+            synchronized (HttpUtil.class) {
+                if (instance == null) {
+                    instance = new HttpUtil();
+                }
+            }
         }
         return instance;
     }
@@ -94,9 +109,15 @@ public class HttpUtil {
     private HttpUtil() {
         //请求器的配置
         requestConfig = RequestConfig.custom()
+                //建立连接的timeout时间
                 .setConnectTimeout(CONNECT_TIMEOUT)
+                //数据传输处理时间 tcp
                 .setSocketTimeout(SOCKET_TIMEOUT)
+                //从连接池中后去连接的timeout时间
                 .setConnectionRequestTimeout(CONNECT_REQUEST_TIMEOUT)
+                .setExpectContinueEnabled(true)
+                //重点参数，在请求之前校验链接是否有效
+                .setStaleConnectionCheckEnabled(true)
                 .build();
     }
 
@@ -106,11 +127,49 @@ public class HttpUtil {
     private volatile RequestConfig requestConfig;
 
     /**
+     * httpclient连接池的配置
+     *
+     * @return
+     */
+    private PoolingHttpClientConnectionManager getConnectionManager() {
+        PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
+        //设置最大连接数
+        connectionManager.setMaxTotal(MAX_TOTAL);
+        //设置单路由链接数
+        connectionManager.setDefaultMaxPerRoute(MAX_PER_ROUTE);
+        return connectionManager;
+    }
+
+    /**
+     * httpclient连接池的配置
+     *
+     * @param sslContext SSL证书
+     * @return
+     */
+    private PoolingHttpClientConnectionManager getConnectionManager(SSLContext sslContext) {
+        SSLConnectionSocketFactory csf = new SSLConnectionSocketFactory(sslContext
+                ,null, null, NoopHostnameVerifier.INSTANCE);
+
+        Registry<ConnectionSocketFactory> registry = RegistryBuilder.<ConnectionSocketFactory>create()
+                .register("http", PlainConnectionSocketFactory.getSocketFactory())
+                .register("https", csf)
+                .build();
+
+        PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager(registry);
+        //设置最大连接数
+        connectionManager.setMaxTotal(MAX_TOTAL);
+        //设置单路由链接数
+        connectionManager.setDefaultMaxPerRoute(MAX_PER_ROUTE);
+        return connectionManager;
+    }
+
+    /**
      * 从连接池中获取 CloseableHttpClient(不带证书)
      */
     private CloseableHttpClient getHttpClient() {
         return HttpClients.custom()
-                .setDefaultRequestConfig(requestConfig)
+                .setConnectionManager(this.getConnectionManager())
+                .setDefaultRequestConfig(this.requestConfig)
                 .evictExpiredConnections()
                 .build();
     }
@@ -118,12 +177,12 @@ public class HttpUtil {
     /**
      * 从连接池中获取 CloseableHttpClient(带证书)
      *
-     * @param sslContext 证书
+     * @param sslContext SSL证书
      */
     private CloseableHttpClient getHttpClient(SSLContext sslContext) {
         return HttpClients.custom()
-                .setConnectionManager(getConnectionManager(sslContext))
-                .setDefaultRequestConfig(requestConfig)
+                .setConnectionManager(this.getConnectionManager(sslContext))
+                .setDefaultRequestConfig(this.requestConfig)
                 .evictExpiredConnections()
                 .build();
     }
@@ -154,26 +213,6 @@ public class HttpUtil {
         } catch (Exception e) {
             throw new HttpUtilClosableException(e.getMessage(), e);
         }
-    }
-
-    /**
-     * httpclient连接池的配置
-     */
-    private PoolingHttpClientConnectionManager getConnectionManager(SSLContext sslContext) {
-        SSLConnectionSocketFactory csf = new SSLConnectionSocketFactory(sslContext
-                ,null, null, NoopHostnameVerifier.INSTANCE);
-
-        Registry<ConnectionSocketFactory> registry = RegistryBuilder.<ConnectionSocketFactory>create()
-                .register("http", PlainConnectionSocketFactory.getSocketFactory())
-                .register("https", csf)
-                .build();
-
-        PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager(registry);
-        //最大连接数128
-        connectionManager.setMaxTotal(256);
-        //路由链接数128
-        connectionManager.setDefaultMaxPerRoute(128);
-        return connectionManager;
     }
 
     /**
@@ -519,35 +558,23 @@ public class HttpUtil {
         }
 
         /**
-         * 关闭资源
-         */
-        private void close() {
-            try {
-                if (this.httpClient != null) {
-                    this.httpClient.close();
-                }
-                if (this.httpResponse != null) {
-                    this.httpResponse.close();
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-
-        /**
          * 返回数据 byte
          * @return
          */
         public byte[] toByte() {
             byte[] bytes = null;
-            try {
-                if (this.httpResponse != null) {
+            if (this.httpResponse != null) {
+                try {
                     bytes = EntityUtils.toByteArray(this.httpResponse.getEntity());
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } finally {
+                    try {
+                        this.httpResponse.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
                 }
-            } catch (IOException e) {
-                e.printStackTrace();
-            } finally {
-                close();
             }
             return bytes;
         }
@@ -558,14 +585,18 @@ public class HttpUtil {
          */
         public InputStream toInput() {
             InputStream input = null;
-            try {
-                if (this.httpResponse != null) {
+            if (this.httpResponse != null) {
+                try {
                     input = this.httpResponse.getEntity().getContent();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } finally {
+                    try {
+                        this.httpResponse.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
                 }
-            } catch (IOException e) {
-                e.printStackTrace();
-            } finally {
-                close();
             }
             return input;
         }
@@ -576,14 +607,18 @@ public class HttpUtil {
          */
         public String toJson() {
             String json = "";
-            try {
-                if (this.httpResponse != null) {
+            if (this.httpResponse != null) {
+                try {
                     json = EntityUtils.toString(this.httpResponse.getEntity(), CHARSET_UTF8);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } finally {
+                    try {
+                        this.httpResponse.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
                 }
-            } catch (IOException e) {
-                e.printStackTrace();
-            } finally {
-                close();
             }
             return json;
         }
