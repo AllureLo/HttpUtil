@@ -537,6 +537,7 @@ public class HttpUtil {
                     //响应状态
                     StatusLine status = this.httpResponse.getStatusLine();
                     if (status.getStatusCode() != HttpStatus.SC_OK) {
+                        this.httpResponse = null;
                         throw new HttpUtilClosableException(status.getReasonPhrase());
                     }
                 }

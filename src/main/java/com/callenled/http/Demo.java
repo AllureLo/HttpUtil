@@ -13,7 +13,7 @@ public class Demo {
             String result = HttpUtil.builder()
                     .doGet("https://www.baidu.com")
                     .toJson();
-            System.out.println("1111111");
+            System.out.println(result);
         }
     }
 }
