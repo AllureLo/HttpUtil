@@ -544,35 +544,23 @@ public class HttpUtil {
         }
 
         /**
-         * 关闭资源
-         */
-        private void close() {
-            try {
-                if (this.httpClient != null) {
-                    this.httpClient.close();
-                }
-                if (this.httpResponse != null) {
-                    this.httpResponse.close();
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-
-        /**
          * 返回数据 byte
          * @return
          */
         public byte[] toByte() {
             byte[] bytes = null;
-            try {
-                if (this.httpResponse != null) {
+            if (this.httpResponse != null) {
+                try {
                     bytes = EntityUtils.toByteArray(this.httpResponse.getEntity());
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } finally {
+                    try {
+                        this.httpResponse.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
                 }
-            } catch (IOException e) {
-                e.printStackTrace();
-            } finally {
-                close();
             }
             return bytes;
         }
@@ -583,14 +571,18 @@ public class HttpUtil {
          */
         public InputStream toInput() {
             InputStream input = null;
-            try {
-                if (this.httpResponse != null) {
+            if (this.httpResponse != null) {
+                try {
                     input = this.httpResponse.getEntity().getContent();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } finally {
+                    try {
+                        this.httpResponse.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
                 }
-            } catch (IOException e) {
-                e.printStackTrace();
-            } finally {
-                close();
             }
             return input;
         }
@@ -600,15 +592,19 @@ public class HttpUtil {
          * @return
          */
         public String toJson() {
-            String json = "";
-            try {
-                if (this.httpResponse != null) {
+            String json = null;
+            if (this.httpResponse != null) {
+                try {
                     json = EntityUtils.toString(this.httpResponse.getEntity(), CHARSET_UTF8);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } finally {
+                    try {
+                        this.httpResponse.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
                 }
-            } catch (IOException e) {
-                e.printStackTrace();
-            } finally {
-                close();
             }
             return json;
         }
@@ -619,7 +615,11 @@ public class HttpUtil {
          * @return
          */
         public <T> Map<String, T> toMap() {
-            return GsonUtil.gsonToMaps(toJson());
+            Map<String, T> map = null;
+            if (this.httpResponse != null) {
+                map = GsonUtil.gsonToMaps(this.toJson());
+            }
+            return map;
         }
 
         /**
@@ -628,7 +628,11 @@ public class HttpUtil {
          * @return
          */
         public <T> T toObject(Class<T> clazz) {
-            return GsonUtil.gsonToBean(toJson(), clazz);
+            T t = null;
+            if (this.httpResponse != null) {
+                t = GsonUtil.gsonToBean(toJson(), clazz);
+            }
+            return t;
         }
 
         /**
@@ -637,7 +641,11 @@ public class HttpUtil {
          * @return
          */
         public <T> List<T> toArray(Class<T> clazz) {
-            return GsonUtil.gsonToArray(toJson(), clazz);
+            List<T> array = null;
+            if (this.httpResponse != null) {
+                array = GsonUtil.gsonToArray(toJson(), clazz);
+            }
+            return array;
         }
 
         /**
@@ -646,7 +654,11 @@ public class HttpUtil {
          * @return
          */
         public <S, T extends BaseResponseObject> T toResponseObject(Class<? extends BaseResponseObject> clazz, Class<S> cls) {
-            return GsonUtil.gsonToResponseObject(toJson(), clazz, cls);
+            T t = null;
+            if (this.httpResponse != null) {
+                t = GsonUtil.gsonToResponseObject(toJson(), clazz, cls);
+            }
+            return t;
         }
 
         /**
@@ -655,7 +667,11 @@ public class HttpUtil {
          * @return
          */
         public <S, T extends BaseResponseObject<List<S>>> T toResponseArray(Class<? extends BaseResponseObject> clazz, Class<S> cls) {
-            return GsonUtil.gsonToResponseArray(toJson(), clazz, cls);
+            T t = null;
+            if (this.httpResponse != null) {
+                t = GsonUtil.gsonToResponseArray(toJson(), clazz, cls);
+            }
+            return t;
         }
     }
 }
