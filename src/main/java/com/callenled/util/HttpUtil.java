@@ -2,6 +2,7 @@ package com.callenled.util;
 
 import com.callenled.http.bean.BaseResponseObject;
 import com.callenled.http.exception.HttpUtilClosableException;
+import com.google.gson.JsonSyntaxException;
 import org.apache.http.HttpStatus;
 import org.apache.http.NameValuePair;
 import org.apache.http.StatusLine;
@@ -531,11 +532,13 @@ public class HttpUtil {
                 if (this.httpClient == null) {
                     this.httpClient = this.httpUtil.getHttpClient();
                 }
-                this.httpResponse = this.httpClient.execute(httpRequest);
-                //响应状态
-                StatusLine status = this.httpResponse.getStatusLine();
-                if (status.getStatusCode() != HttpStatus.SC_OK) {
-                    throw new HttpUtilClosableException(status.getReasonPhrase());
+                if (httpRequest != null) {
+                    this.httpResponse = this.httpClient.execute(httpRequest);
+                    //响应状态
+                    StatusLine status = this.httpResponse.getStatusLine();
+                    if (status.getStatusCode() != HttpStatus.SC_OK) {
+                        throw new HttpUtilClosableException(status.getReasonPhrase());
+                    }
                 }
             } catch (IOException | HttpUtilClosableException e) {
                 e.printStackTrace();
@@ -617,7 +620,11 @@ public class HttpUtil {
         public <T> Map<String, T> toMap() {
             Map<String, T> map = null;
             if (this.httpResponse != null) {
-                map = GsonUtil.gsonToMaps(this.toJson());
+                try {
+                    map = GsonUtil.gsonToMaps(this.toJson());
+                } catch (JsonSyntaxException e) {
+                    e.printStackTrace();
+                }
             }
             return map;
         }
@@ -630,7 +637,11 @@ public class HttpUtil {
         public <T> T toObject(Class<T> clazz) {
             T t = null;
             if (this.httpResponse != null) {
-                t = GsonUtil.gsonToBean(toJson(), clazz);
+                try {
+                    t = GsonUtil.gsonToBean(this.toJson(), clazz);
+                } catch (JsonSyntaxException e) {
+                    e.printStackTrace();
+                }
             }
             return t;
         }
@@ -643,7 +654,11 @@ public class HttpUtil {
         public <T> List<T> toArray(Class<T> clazz) {
             List<T> array = null;
             if (this.httpResponse != null) {
-                array = GsonUtil.gsonToArray(toJson(), clazz);
+                try {
+                    array = GsonUtil.gsonToArray(toJson(), clazz);
+                } catch (JsonSyntaxException e) {
+                    e.printStackTrace();
+                }
             }
             return array;
         }
@@ -656,7 +671,11 @@ public class HttpUtil {
         public <S, T extends BaseResponseObject> T toResponseObject(Class<? extends BaseResponseObject> clazz, Class<S> cls) {
             T t = null;
             if (this.httpResponse != null) {
-                t = GsonUtil.gsonToResponseObject(toJson(), clazz, cls);
+                try {
+                    t = GsonUtil.gsonToResponseObject(this.toJson(), clazz, cls);
+                } catch (JsonSyntaxException e) {
+                    e.printStackTrace();
+                }
             }
             return t;
         }
@@ -669,7 +688,11 @@ public class HttpUtil {
         public <S, T extends BaseResponseObject<List<S>>> T toResponseArray(Class<? extends BaseResponseObject> clazz, Class<S> cls) {
             T t = null;
             if (this.httpResponse != null) {
-                t = GsonUtil.gsonToResponseArray(toJson(), clazz, cls);
+                try {
+                    t = GsonUtil.gsonToResponseArray(this.toJson(), clazz, cls);
+                } catch (JsonSyntaxException e) {
+                    e.printStackTrace();
+                }
             }
             return t;
         }
