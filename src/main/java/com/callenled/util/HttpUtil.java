@@ -536,8 +536,6 @@ public class HttpUtil {
                 }
             } catch (IOException | HttpUtilClosableException e) {
                 e.printStackTrace();
-            } finally {
-                this.httpUtil = null;
             }
             return this;
         }
