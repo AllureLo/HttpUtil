@@ -523,9 +523,9 @@ public class HttpUtil {
          */
         private Builder doHttp(HttpUriRequest httpRequest) {
             try {
-                //请求client
-                CloseableHttpClient httpClient = this.httpUtil.getHttpClient(this.sslContext);
                 if (httpRequest != null) {
+                    //请求client
+                    CloseableHttpClient httpClient = this.httpUtil.getHttpClient(this.sslContext);
                     this.httpResponse = httpClient.execute(httpRequest);
                     //响应状态
                     StatusLine status = this.httpResponse.getStatusLine();
