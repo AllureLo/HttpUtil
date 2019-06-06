@@ -6,7 +6,6 @@ import com.google.gson.JsonSyntaxException;
 import org.apache.http.HttpStatus;
 import org.apache.http.NameValuePair;
 import org.apache.http.StatusLine;
-import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.*;
@@ -103,17 +102,7 @@ public class HttpUtil {
         return instance;
     }
 
-    /**
-     * 请求器的配置
-     */
-    private volatile CloseableHttpClient httpClient;
-
-    /**
-     * 从连接池中获取 CloseableHttpClient(不带证书)
-     *
-     * @return
-     */
-    private void getHttpClient() {
+    public HttpUtil () {
         this.httpClient = HttpClients.custom()
                 .setConnectionManager(getConnectionManager())
                 .setDefaultRequestConfig(getRequestConfig())
@@ -122,16 +111,71 @@ public class HttpUtil {
     }
 
     /**
-     * 从连接池中获取 CloseableHttpClient(带证书)
+     * httpclient
+     */
+    private volatile CloseableHttpClient httpClient;
+
+    /**
+     * 当前使用的证书
+     */
+    private volatile SSLContext currentSSLContext;
+
+    /**
+     * 设置httpclient （不带证书）
      *
-     * @param sslContext 证书
+     * @return
+     */
+    private void getHttpClient() {
+        if (currentSSLContext != null) {
+            synchronized (this) {
+                if (currentSSLContext != null) {
+                    try {
+                        if (this.httpClient != null) {
+                            this.httpClient.close();
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    } finally {
+                        this.httpClient = HttpClients.custom()
+                                .setConnectionManager(getConnectionManager())
+                                .setDefaultRequestConfig(getRequestConfig())
+                                .evictExpiredConnections()
+                                .build();
+                    }
+                    this.currentSSLContext = null;
+                }
+            }
+        }
+    }
+
+    /**
+     * 设置httpclient （带证书）
+     *
+     * @param sslContext SSL证书
+     * @return
      */
     private void getHttpClient(SSLContext sslContext) {
-        this.httpClient = HttpClients.custom()
-                .setConnectionManager(getConnectionManager(sslContext))
-                .setDefaultRequestConfig(getRequestConfig())
-                .evictExpiredConnections()
-                .build();
+        if (currentSSLContext != sslContext) {
+            synchronized (this) {
+                if (currentSSLContext != sslContext) {
+                    try {
+                        if (this.httpClient != null) {
+                            this.httpClient.close();
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    } finally {
+                        this.httpClient = HttpClients.custom()
+                                .setSSLContext(sslContext)
+                                .setConnectionManager(getConnectionManager())
+                                .setDefaultRequestConfig(getRequestConfig())
+                                .evictExpiredConnections()
+                                .build();
+                    }
+                    this.currentSSLContext = sslContext;
+                }
+            }
+        }
     }
 
     /**
@@ -139,7 +183,7 @@ public class HttpUtil {
      *
      * @return
      */
-    private RequestConfig getRequestConfig() {
+    private static RequestConfig getRequestConfig() {
         return RequestConfig.custom()
                 .setConnectTimeout(CONNECT_TIMEOUT)
                 .setSocketTimeout(SOCKET_TIMEOUT)
@@ -148,58 +192,10 @@ public class HttpUtil {
     }
 
     /**
-     * 获取SSL上下文对象,用来构建SSL Socket连接
-     *
-     * @param certPath   SSL文件
-     * @param certPass   SSL密码
-     * @return SSL上下文对象
-     */
-    public static SSLContext getSSLContext(String certPath, String certPass) throws HttpUtilClosableException {
-        try {
-            KeyStore keyStore = KeyStore.getInstance("PKCS12");
-            // 证书文件流
-            File file = new File(certPath);
-            if (!file.exists()) {
-                throw new HttpUtilClosableException("证书不存在");
-            }
-            InputStream input = new FileInputStream(file);
-            keyStore.load(input, certPass.toCharArray());
-            // 相信自己的CA和所有自签名的证书
-            return SSLContexts.custom()
-                    //忽略掉对服务器端证书的校验
-                    //.loadTrustMaterial((TrustStrategy) (chain, authType) -> true)
-                    //加载服务端提供的truststore(如果服务器提供truststore的话就不用忽略对服务器端证书的校验了)
-                    .loadKeyMaterial(keyStore, certPass.toCharArray()).build();
-        } catch (Exception e) {
-            throw new HttpUtilClosableException(e.getMessage(), e);
-        }
-    }
-
-    /**
      * httpclient连接池的配置
      */
-    private PoolingHttpClientConnectionManager getConnectionManager() {
+    private static PoolingHttpClientConnectionManager getConnectionManager() {
         PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
-        //最大连接数
-        connectionManager.setMaxTotal(MAX_TOTAL);
-        //路由链接数
-        connectionManager.setDefaultMaxPerRoute(MAX_PER_ROUTE);
-        return connectionManager;
-    }
-
-    /**
-     * httpclient连接池的配置
-     */
-    private PoolingHttpClientConnectionManager getConnectionManager(SSLContext sslContext) {
-        SSLConnectionSocketFactory csf = new SSLConnectionSocketFactory(sslContext
-                ,null, null, NoopHostnameVerifier.INSTANCE);
-
-        Registry<ConnectionSocketFactory> registry = RegistryBuilder.<ConnectionSocketFactory>create()
-                .register("http", PlainConnectionSocketFactory.getSocketFactory())
-                .register("https", csf)
-                .build();
-
-        PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager(registry);
         //最大连接数
         connectionManager.setMaxTotal(MAX_TOTAL);
         //路由链接数
@@ -317,6 +313,34 @@ public class HttpUtil {
         return (HttpPost) setHeader(httpPost, headers);
     }
 
+    /**
+     * 获取SSL上下文对象,用来构建SSL Socket连接
+     *
+     * @param certPath   SSL文件
+     * @param certPass   SSL密码
+     * @return SSL上下文对象
+     */
+    public static SSLContext getSSLContext(String certPath, String certPass) throws HttpUtilClosableException {
+        try {
+            KeyStore keyStore = KeyStore.getInstance("PKCS12");
+            // 证书文件流
+            File file = new File(certPath);
+            if (!file.exists()) {
+                throw new HttpUtilClosableException("证书不存在");
+            }
+            InputStream input = new FileInputStream(file);
+            keyStore.load(input, certPass.toCharArray());
+            // 相信自己的CA和所有自签名的证书
+            return SSLContexts.custom()
+                    //忽略掉对服务器端证书的校验
+                    //.loadTrustMaterial((TrustStrategy) (chain, authType) -> true)
+                    //加载服务端提供的truststore(如果服务器提供truststore的话就不用忽略对服务器端证书的校验了)
+                    .loadKeyMaterial(keyStore, certPass.toCharArray()).build();
+        } catch (Exception e) {
+            throw new HttpUtilClosableException(e.getMessage(), e);
+        }
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -413,14 +437,6 @@ public class HttpUtil {
         }
 
         /**
-         * 设置不带证书
-         */
-        public Builder setWithoutSSLContext() {
-            this.httpUtil.getHttpClient();
-            return this;
-        }
-
-        /**
          * 设置证书
          *
          * @param certPath   SSL文件
@@ -447,6 +463,16 @@ public class HttpUtil {
          */
         public Builder setSSLContext(SSLContext sslContext) {
             this.httpUtil.getHttpClient(sslContext);
+            return this;
+        }
+
+        /**
+         * 不带证书
+         *
+         * @return
+         */
+        public Builder setWithoutSSLContext() {
+            this.httpUtil.getHttpClient();
             return this;
         }
 
@@ -532,9 +558,6 @@ public class HttpUtil {
         private Builder doHttp(HttpUriRequest httpRequest) {
             if (httpRequest != null) {
                 //请求client
-                if (this.httpUtil.httpClient == null) {
-                    this.httpUtil.getHttpClient();
-                }
                 try {
                     this.httpResponse = this.httpUtil.httpClient.execute(httpRequest);
                 } catch (IOException e) {
