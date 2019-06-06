@@ -116,37 +116,14 @@ public class HttpUtil {
     private volatile CloseableHttpClient httpClient;
 
     /**
+     * httpclient
+     */
+    private volatile CloseableHttpClient httpClientWithSSL;
+
+    /**
      * 当前使用的证书
      */
     private volatile SSLContext currentSSLContext;
-
-    /**
-     * 设置httpclient （不带证书）
-     *
-     * @return
-     */
-    private void getHttpClient() {
-        if (currentSSLContext != null) {
-            synchronized (this) {
-                if (currentSSLContext != null) {
-                    try {
-                        if (this.httpClient != null) {
-                            this.httpClient.close();
-                        }
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    } finally {
-                        this.httpClient = HttpClients.custom()
-                                .setConnectionManager(getConnectionManager())
-                                .setDefaultRequestConfig(getRequestConfig())
-                                .evictExpiredConnections()
-                                .build();
-                    }
-                    this.currentSSLContext = null;
-                }
-            }
-        }
-    }
 
     /**
      * 设置httpclient （带证书）
@@ -154,18 +131,18 @@ public class HttpUtil {
      * @param sslContext SSL证书
      * @return
      */
-    private void getHttpClient(SSLContext sslContext) {
+    private CloseableHttpClient getHttpClient(SSLContext sslContext) {
         if (currentSSLContext != sslContext) {
             synchronized (this) {
                 if (currentSSLContext != sslContext) {
                     try {
-                        if (this.httpClient != null) {
-                            this.httpClient.close();
+                        if (this.httpClientWithSSL != null) {
+                            this.httpClientWithSSL.close();
                         }
                     } catch (IOException e) {
                         e.printStackTrace();
                     } finally {
-                        this.httpClient = HttpClients.custom()
+                        this.httpClientWithSSL = HttpClients.custom()
                                 .setSSLContext(sslContext)
                                 .setConnectionManager(getConnectionManager())
                                 .setDefaultRequestConfig(getRequestConfig())
@@ -176,6 +153,7 @@ public class HttpUtil {
                 }
             }
         }
+        return this.httpClientWithSSL;
     }
 
     /**
@@ -371,6 +349,11 @@ public class HttpUtil {
         private String contentType;
 
         /**
+         * SSL证书
+         */
+        private SSLContext sslContext;
+
+        /**
          * http响应参数
          */
         private CloseableHttpResponse httpResponse;
@@ -439,40 +422,11 @@ public class HttpUtil {
         /**
          * 设置证书
          *
-         * @param certPath   SSL文件
-         * @param certPass   SSL密码
-         * @return
-         */
-        public Builder setSSLContext(String certPath, String certPass) {
-            try {
-                //获取ssl证书
-                SSLContext sslContext = HttpUtil.getSSLContext(certPath, certPass);
-                //设置连接池证书配置
-                return setSSLContext(sslContext);
-            } catch (HttpUtilClosableException e) {
-                e.printStackTrace();
-            }
-            return this;
-        }
-
-        /**
-         * 设置证书
-         *
          * @param sslContext 证书
          * @return
          */
         public Builder setSSLContext(SSLContext sslContext) {
-            this.httpUtil.getHttpClient(sslContext);
-            return this;
-        }
-
-        /**
-         * 不带证书
-         *
-         * @return
-         */
-        public Builder setWithoutSSLContext() {
-            this.httpUtil.getHttpClient();
+            this.sslContext = sslContext;
             return this;
         }
 
@@ -557,24 +511,26 @@ public class HttpUtil {
          */
         private Builder doHttp(HttpUriRequest httpRequest) {
             if (httpRequest != null) {
-                //请求client
                 try {
-                    this.httpResponse = this.httpUtil.httpClient.execute(httpRequest);
+                    //请求client
+                    CloseableHttpClient httpClient = this.httpUtil.httpClient;
+                    if (sslContext != null) {
+                        httpClient = this.httpUtil.getHttpClient(sslContext);
+                    }
+                    this.httpResponse = httpClient.execute(httpRequest);
+                    //响应状态
+                    StatusLine status = this.httpResponse.getStatusLine();
+                    if (status.getStatusCode() != HttpStatus.SC_OK) {
+                        try {
+                            throw new HttpUtilClosableException(status.getReasonPhrase());
+                        } catch (HttpUtilClosableException e) {
+                            e.printStackTrace();
+                        } finally {
+                            this.httpResponse = null;
+                        }
+                    }
                 } catch (IOException e) {
                     e.printStackTrace();
-                }
-            }
-            if (this.httpResponse != null) {
-                //响应状态
-                StatusLine status = this.httpResponse.getStatusLine();
-                if (status.getStatusCode() != HttpStatus.SC_OK) {
-                    try {
-                        throw new HttpUtilClosableException(status.getReasonPhrase());
-                    } catch (HttpUtilClosableException e) {
-                        e.printStackTrace();
-                    } finally {
-                        this.httpResponse = null;
-                    }
                 }
             }
             return this;
