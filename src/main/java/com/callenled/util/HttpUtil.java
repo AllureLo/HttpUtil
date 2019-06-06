@@ -10,12 +10,6 @@ import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.*;
 import org.apache.http.client.utils.URIBuilder;
-import org.apache.http.config.Registry;
-import org.apache.http.config.RegistryBuilder;
-import org.apache.http.conn.socket.ConnectionSocketFactory;
-import org.apache.http.conn.socket.PlainConnectionSocketFactory;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
-import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
@@ -485,7 +479,7 @@ public class HttpUtil {
             } catch (HttpUtilClosableException e) {
                 e.printStackTrace();
             }
-            return doHttp(httpRequest);
+            return execute(httpRequest);
         }
 
         /**
@@ -500,7 +494,7 @@ public class HttpUtil {
             } catch (HttpUtilClosableException e) {
                 e.printStackTrace();
             }
-            return doHttp(httpRequest);
+            return execute(httpRequest);
         }
 
         /**
@@ -509,7 +503,7 @@ public class HttpUtil {
          * @param httpRequest 请求
          * @return
          */
-        private Builder doHttp(HttpUriRequest httpRequest) {
+        private Builder execute(HttpUriRequest httpRequest) {
             if (httpRequest != null) {
                 try {
                     //请求client
@@ -518,19 +512,30 @@ public class HttpUtil {
                         httpClient = this.httpUtil.getHttpClient(sslContext);
                     }
                     this.httpResponse = httpClient.execute(httpRequest);
-                    //响应状态
-                    StatusLine status = this.httpResponse.getStatusLine();
-                    if (status.getStatusCode() != HttpStatus.SC_OK) {
-                        try {
-                            throw new HttpUtilClosableException(status.getReasonPhrase());
-                        } catch (HttpUtilClosableException e) {
-                            e.printStackTrace();
-                        } finally {
-                            this.httpResponse = null;
-                        }
-                    }
                 } catch (IOException e) {
                     e.printStackTrace();
+                }
+            }
+            return callback();
+        }
+
+        /**
+         * 响应参数校验
+         *
+         * @return
+         */
+        private Builder callback() {
+            if (this.httpResponse != null) {
+                //响应状态
+                StatusLine status = this.httpResponse.getStatusLine();
+                if (status.getStatusCode() != HttpStatus.SC_OK) {
+                    try {
+                        throw new HttpUtilClosableException(status.getReasonPhrase());
+                    } catch (HttpUtilClosableException e) {
+                        e.printStackTrace();
+                    } finally {
+                        this.httpResponse = null;
+                    }
                 }
             }
             return this;
