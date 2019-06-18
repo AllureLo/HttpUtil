@@ -8,12 +8,9 @@ import com.callenled.util.HttpUtil;
  */
 public class Demo {
     public static void main(String[] args) {
-
-        while (true) {
-            String result = HttpUtil.builder()
-                    .doGet("https://www.baidu.com")
-                    .toJson();
-            System.out.println(result);
-        }
+        String result = HttpUtil.builder()
+                .doGet("https://api.mch.weixin.qq.com/secapi/pay/refund")
+                .toJson();
+        System.out.println(result);
     }
 }

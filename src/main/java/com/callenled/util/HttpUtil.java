@@ -571,7 +571,16 @@ public class HttpUtil {
             InputStream input = null;
             if (this.httpResponse != null) {
                 try {
-                    input = this.httpResponse.getEntity().getContent();
+                    ByteArrayOutputStream output = new ByteArrayOutputStream();
+                    //先把InputStream转化成ByteArrayOutputStream
+                    byte[] buffer = new byte[1024];
+                    int len;
+                    while ((len = this.httpResponse.getEntity().getContent().read(buffer)) > -1 ) {
+                        output.write(buffer, 0, len);
+                    }
+                    output.flush();
+                    //使用InputStream对象时，再从ByteArrayOutputStream转化回来
+                    input = new ByteArrayInputStream(output.toByteArray());
                 } catch (IOException e) {
                     e.printStackTrace();
                 } finally {
