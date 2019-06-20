@@ -112,12 +112,7 @@ public class HttpUtil {
     /**
      * httpclient
      */
-    private volatile CloseableHttpClient httpClientWithSSL;
-
-    /**
-     * 当前使用的证书
-     */
-    private volatile SSLContext currentSSLContext;
+    private volatile Map<Integer, CloseableHttpClient> httpClientMap = new HashMap<>();
 
     /**
      * 设置httpclient （带证书）
@@ -126,28 +121,19 @@ public class HttpUtil {
      * @return
      */
     private CloseableHttpClient getHttpClient(SSLContext sslContext) {
-        if (currentSSLContext != sslContext) {
+        CloseableHttpClient httpClient = this.httpClientMap.get(sslContext.hashCode());
+        if (httpClient == null) {
             synchronized (this) {
-                if (currentSSLContext != sslContext) {
-                    try {
-                        if (this.httpClientWithSSL != null) {
-                            this.httpClientWithSSL.close();
-                        }
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    } finally {
-                        this.httpClientWithSSL = HttpClients.custom()
-                                .setSSLContext(sslContext)
-                                .setConnectionManager(getConnectionManager())
-                                .setDefaultRequestConfig(getRequestConfig())
-                                .evictExpiredConnections()
-                                .build();
-                    }
-                    this.currentSSLContext = sslContext;
-                }
+                httpClient = HttpClients.custom()
+                        .setSSLContext(sslContext)
+                        .setConnectionManager(getConnectionManager())
+                        .setDefaultRequestConfig(getRequestConfig())
+                        .evictExpiredConnections()
+                        .build();
+                this.httpClientMap.put(sslContext.hashCode(), httpClient);
             }
         }
-        return this.httpClientWithSSL;
+        return httpClient;
     }
 
     /**
