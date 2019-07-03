@@ -3,13 +3,14 @@ package com.callenled.util;
 import com.callenled.http.bean.BaseResponseObject;
 import com.callenled.http.exception.HttpUtilClosableException;
 import com.google.gson.JsonSyntaxException;
-import org.apache.http.HttpStatus;
-import org.apache.http.NameValuePair;
-import org.apache.http.StatusLine;
+import org.apache.http.*;
+import org.apache.http.client.HttpRequestRetryHandler;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.*;
+import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.client.utils.URIBuilder;
+import org.apache.http.conn.ConnectTimeoutException;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
@@ -20,9 +21,11 @@ import org.apache.http.ssl.SSLContexts;
 import org.apache.http.util.EntityUtils;
 
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLException;
 import java.io.*;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.security.*;
 import java.util.*;
 
@@ -53,19 +56,19 @@ public class HttpUtil {
     private static final String CHARSET_UTF8 = "UTF-8";
 
     /**
-     * 设置建立连接超时时间 单位 毫秒(ms)
+     * 设置连接超时时间 单位 毫秒(ms)
      */
     private static final int CONNECT_TIMEOUT = 3000;
 
     /**
-     * 设置响应时间 单位 毫秒(ms)
+     * 设置读取超时时间 单位 毫秒(ms)
      */
-    private static final int SOCKET_TIMEOUT = 3000;
+    private static final int SOCKET_TIMEOUT = 10000;
 
     /**
      * 设置请求时间 单位 毫秒(ms)
      */
-    private static final int CONNECT_REQUEST_TIMEOUT = 1000;
+    private static final int CONNECT_REQUEST_TIMEOUT = 3000;
 
     /**
      * 最大连接数
@@ -100,6 +103,7 @@ public class HttpUtil {
         this.httpClient = HttpClients.custom()
                 .setConnectionManager(getConnectionManager())
                 .setDefaultRequestConfig(getRequestConfig())
+                .setRetryHandler(getHandle())
                 .evictExpiredConnections()
                 .build();
     }
@@ -112,7 +116,12 @@ public class HttpUtil {
     /**
      * httpclient
      */
-    private volatile Map<Integer, CloseableHttpClient> httpClientMap = new HashMap<>();
+    private volatile CloseableHttpClient httpClientWithSSL;
+
+    /**
+     * 当前使用的证书
+     */
+    private volatile SSLContext currentSSLContext;
 
     /**
      * 设置httpclient （带证书）
@@ -121,19 +130,28 @@ public class HttpUtil {
      * @return
      */
     private CloseableHttpClient getHttpClient(SSLContext sslContext) {
-        CloseableHttpClient httpClient = this.httpClientMap.get(sslContext.hashCode());
-        if (httpClient == null) {
+        if (currentSSLContext != sslContext) {
             synchronized (this) {
-                httpClient = HttpClients.custom()
-                        .setSSLContext(sslContext)
-                        .setConnectionManager(getConnectionManager())
-                        .setDefaultRequestConfig(getRequestConfig())
-                        .evictExpiredConnections()
-                        .build();
-                this.httpClientMap.put(sslContext.hashCode(), httpClient);
+                if (currentSSLContext != sslContext) {
+                    try {
+                        if (this.httpClientWithSSL != null) {
+                            this.httpClientWithSSL.close();
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    } finally {
+                        this.httpClientWithSSL = HttpClients.custom()
+                                .setSSLContext(sslContext)
+                                .setConnectionManager(getConnectionManager())
+                                .setDefaultRequestConfig(getRequestConfig())
+                                .evictExpiredConnections()
+                                .build();
+                    }
+                    this.currentSSLContext = sslContext;
+                }
             }
         }
-        return httpClient;
+        return this.httpClientWithSSL;
     }
 
     /**
@@ -151,6 +169,8 @@ public class HttpUtil {
 
     /**
      * httpclient连接池的配置
+     *
+     * @return
      */
     private static PoolingHttpClientConnectionManager getConnectionManager() {
         PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
@@ -159,6 +179,44 @@ public class HttpUtil {
         //路由链接数
         connectionManager.setDefaultMaxPerRoute(MAX_PER_ROUTE);
         return connectionManager;
+    }
+
+    /**
+     * 请求失败时,进行请求重试
+     *
+     * @return
+     */
+    private static HttpRequestRetryHandler getHandle() {
+        return (e, i, httpContext) -> {
+            if (i > 3){
+                //重试超过3次,放弃请求
+                System.out.println("retry has more than 3 time, give up request");
+                return false;
+            }
+            if (e instanceof ConnectTimeoutException){
+                // 连接超时
+                return true;
+            }
+            if (e instanceof NoHttpResponseException){
+                //服务器没有响应,可能是服务器断开了连接,应该重试
+                return true;
+            }
+            if (e instanceof UnknownHostException){
+                // 服务器不可达
+                return true;
+            }
+            if (e instanceof SSLException){
+                return true;
+            }
+
+            HttpClientContext context = HttpClientContext.adapt(httpContext);
+            HttpRequest request = context.getRequest();
+            if (!(request instanceof HttpEntityEnclosingRequest)){
+                //如果请求不是关闭连接的请求
+                return true;
+            }
+            return false;
+        };
     }
 
     /**
@@ -230,7 +288,7 @@ public class HttpUtil {
      * @param params  请求参数
      * @return HttpPost
      */
-    private static HttpPost doPost(String url, Map<String, String> headers, Map<String, Object> params, Object jsonObject, String contentType) throws HttpUtilClosableException {
+    private static HttpPost doPost(String url, Map<String, String> headers, Map<String, Object> params, Object jsonObject, String contentType, String charset) throws HttpUtilClosableException {
         // 创建httpPost
         HttpPost httpPost;
         if (jsonObject != null && params != null) {
@@ -246,7 +304,7 @@ public class HttpUtil {
             // 请求头
             httpPost.setHeader(HTTP.CONTENT_TYPE, "application/json");
             // 设置参数
-            StringEntity entity = new StringEntity(json, CHARSET_UTF8);
+            StringEntity entity = new StringEntity(json, charset);
             if (contentType != null) {
                 entity.setContentType(contentType);
             }
@@ -263,7 +321,7 @@ public class HttpUtil {
                 }
             }
             try {
-                httpPost.setEntity(new UrlEncodedFormEntity(nvp, CHARSET_UTF8));
+                httpPost.setEntity(new UrlEncodedFormEntity(nvp, charset));
             } catch (UnsupportedEncodingException e) {
                 throw new HttpUtilClosableException(e.getMessage(), e);
             }
@@ -314,6 +372,11 @@ public class HttpUtil {
         private Map<String, Object> params;
 
         /**
+         * 参数编码格式 默认UTF-8
+         */
+        private String charset = CHARSET_UTF8;
+
+        /**
          * 请求参数(json格式)
          */
         private Object jsonObject;
@@ -350,8 +413,13 @@ public class HttpUtil {
             this.httpUtil = HttpUtil.getInstance();
         }
 
+
         /**
          * 添加参数
+         *
+         * @param key
+         * @param value
+         * @return
          */
         public Builder addParams(String key, Object value) {
             if (this.params == null) {
@@ -363,12 +431,26 @@ public class HttpUtil {
 
         /**
          * 添加参数
+         *
+         * @param params
+         * @return
          */
         public Builder addParams(Map<String, Object> params) {
             if (this.params == null) {
                 this.params = new HashMap<>(5);
             }
             this.params.putAll(params);
+            return this;
+        }
+
+        /**
+         * 设置参数编码格式
+         *
+         * @param charset
+         * @return
+         */
+        public Builder setCharset(String charset) {
+            this.charset = charset;
             return this;
         }
 
@@ -476,7 +558,7 @@ public class HttpUtil {
         public Builder doPost(String url) {
             HttpUriRequest httpRequest = null;
             try {
-                httpRequest = HttpUtil.doPost(url, this.headers, this.params, this.jsonObject, this.contentType);
+                httpRequest = HttpUtil.doPost(url, this.headers, this.params, this.jsonObject, this.contentType, this.charset);
             } catch (HttpUtilClosableException e) {
                 e.printStackTrace();
             }
@@ -528,6 +610,66 @@ public class HttpUtil {
         }
 
         /**
+         * 获取响应头
+         *
+         * @param map
+         * @param keys
+         * @return
+         */
+        public Builder getHeaders(Map<String, String> map, String... keys) {
+            if (this.httpResponse != null) {
+                for (String key : keys) {
+                    Header[] headers = this.httpResponse.getHeaders(key);
+                    for (Header header : headers) {
+                        map.put(header.getName(), header.getValue());
+                    }
+                }
+            }
+            return this;
+        }
+
+        /**
+         * 获取响应头
+         *
+         * @param map
+         * @return
+         */
+        public Builder getHeaders(Map<String, String> map) {
+            if (this.httpResponse != null) {
+                Header[] headers = this.httpResponse.getAllHeaders();
+                for (Header header : headers) {
+                    map.put(header.getName(), header.getValue());
+                }
+            }
+            return this;
+        }
+
+        /**
+         * 获取响应头
+         *
+         * @param keys
+         * @return
+         */
+        public Map<String, String> getHeaders(String... keys) {
+            Map<String, String> map = new HashMap<>();
+            this.getHeaders(map, keys);
+            this.close();
+            return map;
+        }
+
+        /**
+         * 获取响应头
+         *
+         * @return
+         */
+        public Map<String, String> getHeaders() {
+            Map<String, String> map = new HashMap<>();
+            this.getHeaders(map);
+            this.close();
+            return map;
+        }
+
+        /**
          * 返回数据 byte
          * @return
          */
@@ -557,16 +699,9 @@ public class HttpUtil {
             InputStream input = null;
             if (this.httpResponse != null) {
                 try {
-                    ByteArrayOutputStream output = new ByteArrayOutputStream();
-                    //先把InputStream转化成ByteArrayOutputStream
-                    byte[] buffer = new byte[1024];
-                    int len;
-                    while ((len = this.httpResponse.getEntity().getContent().read(buffer)) > -1 ) {
-                        output.write(buffer, 0, len);
-                    }
-                    output.flush();
-                    //使用InputStream对象时，再从ByteArrayOutputStream转化回来
-                    input = new ByteArrayInputStream(output.toByteArray());
+                    byte[] bytes = EntityUtils.toByteArray(this.httpResponse.getEntity());
+                    //使用InputStream对象时，再从bytes转化回来
+                    input = new ByteArrayInputStream(bytes);
                 } catch (IOException e) {
                     e.printStackTrace();
                 } finally {
@@ -585,10 +720,22 @@ public class HttpUtil {
          * @return
          */
         public String toJson() {
+            return toJson(CHARSET_UTF8);
+        }
+
+        /**
+         * 返回数据 String
+         *
+         * @param enc The name of a supported
+         *    <a href="../lang/package-summary.html#charenc">character
+         *    encoding</a>.
+         * @return
+         */
+        public String toJson(String enc) {
             String json = null;
             if (this.httpResponse != null) {
                 try {
-                    json = EntityUtils.toString(this.httpResponse.getEntity(), CHARSET_UTF8);
+                    json = EntityUtils.toString(this.httpResponse.getEntity(), enc);
                 } catch (IOException e) {
                     e.printStackTrace();
                 } finally {
@@ -620,7 +767,7 @@ public class HttpUtil {
         }
 
         /**
-         * 返回参数 对象
+         * 返回参数 clazz
          *
          * @return
          */
@@ -637,7 +784,7 @@ public class HttpUtil {
         }
 
         /**
-         * 返回参数 list格式
+         * 返回参数 list
          *
          * @return
          */
@@ -654,7 +801,7 @@ public class HttpUtil {
         }
 
         /**
-         * 返回参数 response格式
+         * 返回参数 response
          *
          * @return
          */
@@ -671,7 +818,7 @@ public class HttpUtil {
         }
 
         /**
-         * 返回参数 response array格式
+         * 返回参数 response array
          *
          * @return
          */
@@ -685,6 +832,19 @@ public class HttpUtil {
                 }
             }
             return t;
+        }
+
+        /**
+         * 关闭资源
+         */
+        public void close() {
+            if (this.httpResponse != null) {
+                try {
+                    this.httpResponse.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
         }
     }
 }
