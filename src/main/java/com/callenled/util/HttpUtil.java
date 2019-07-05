@@ -26,6 +26,7 @@ import java.io.*;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.nio.charset.Charset;
 import java.security.*;
 import java.util.*;
 
@@ -226,10 +227,10 @@ public class HttpUtil {
      * @param params 请求参数
      * @return URI
      */
-    private static URI getUrl(String url, Map<String, Object> params) throws HttpUtilClosableException {
+    private static URI getUrl(String url, Map<String, Object> params, Charset charset) throws HttpUtilClosableException {
         // 创建访问的地址
         try {
-            URIBuilder uriBuilder = new URIBuilder(url);
+            URIBuilder uriBuilder = new URIBuilder(url).setCharset(charset);
             if (params != null) {
                 Set<Map.Entry<String, Object>> entrySet = params.entrySet();
                 for (Map.Entry<String, Object> entry : entrySet) {
@@ -272,9 +273,9 @@ public class HttpUtil {
      * @param params  请求参数
      * @return HttpGet
      */
-    private static HttpGet doGet(String url, Map<String, String> headers, Map<String, Object> params) throws HttpUtilClosableException {
+    private static HttpGet doGet(String url, Map<String, String> headers, Map<String, Object> params, Charset charset) throws HttpUtilClosableException {
         // 创建访问的地址
-        URI uri = getUrl(url, params);
+        URI uri = getUrl(url, params, charset);
         // 创建http对象
         HttpGet httpGet = new HttpGet(uri);
         // 设置请求头
@@ -288,12 +289,12 @@ public class HttpUtil {
      * @param params  请求参数
      * @return HttpPost
      */
-    private static HttpPost doPost(String url, Map<String, String> headers, Map<String, Object> params, Object jsonObject, String contentType, String charset) throws HttpUtilClosableException {
+    private static HttpPost doPost(String url, Map<String, String> headers, Map<String, Object> params, Object jsonObject, String contentType, Charset charset) throws HttpUtilClosableException {
         // 创建httpPost
         HttpPost httpPost;
         if (jsonObject != null && params != null) {
             // 创建访问的地址
-            URI uri = getUrl(url, params);
+            URI uri = getUrl(url, params, charset);
             httpPost = new HttpPost(uri);
         } else {
             httpPost = new HttpPost(url);
@@ -320,11 +321,7 @@ public class HttpUtil {
                     nvp.add(new BasicNameValuePair(key, String.valueOf(value)));
                 }
             }
-            try {
-                httpPost.setEntity(new UrlEncodedFormEntity(nvp, charset));
-            } catch (UnsupportedEncodingException e) {
-                throw new HttpUtilClosableException(e.getMessage(), e);
-            }
+            httpPost.setEntity(new UrlEncodedFormEntity(nvp, charset));
         }
         return (HttpPost) setHeader(httpPost, headers);
     }
@@ -362,6 +359,22 @@ public class HttpUtil {
     }
 
     /**
+     * 资源关闭
+     */
+    public static void close() {
+        try {
+            if (HttpUtil.getInstance().httpClient != null) {
+                HttpUtil.getInstance().httpClient.close();
+            }
+            if (HttpUtil.getInstance().httpClientWithSSL != null) {
+                HttpUtil.getInstance().httpClientWithSSL.close();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
      * 构造http请求函数
      */
     public static class Builder {
@@ -372,9 +385,9 @@ public class HttpUtil {
         private Map<String, Object> params;
 
         /**
-         * 参数编码格式 默认UTF-8
+         * 参数编码格式
          */
-        private String charset = CHARSET_UTF8;
+        private Charset charset = Charset.forName(CHARSET_UTF8);
 
         /**
          * 请求参数(json格式)
@@ -392,12 +405,17 @@ public class HttpUtil {
         private String contentType;
 
         /**
+         * http请求
+         */
+        private HttpUriRequest httpRequest;
+
+        /**
          * SSL证书
          */
         private SSLContext sslContext;
 
         /**
-         * http响应参数
+         * http响应
          */
         private CloseableHttpResponse httpResponse;
 
@@ -450,7 +468,7 @@ public class HttpUtil {
          * @return
          */
         public Builder setCharset(String charset) {
-            this.charset = charset;
+            this.charset = Charset.forName(charset);
             return this;
         }
 
@@ -541,13 +559,12 @@ public class HttpUtil {
          * @return HttpGet
          */
         public Builder doGet(String url) {
-            HttpUriRequest httpRequest = null;
             try {
-                httpRequest = HttpUtil.doGet(url, this.headers, this.params);
+                this.httpRequest = HttpUtil.doGet(url, this.headers, this.params, this.charset);
             } catch (HttpUtilClosableException e) {
                 e.printStackTrace();
             }
-            return execute(httpRequest);
+            return execute();
         }
 
         /**
@@ -556,30 +573,30 @@ public class HttpUtil {
          * @return HttpPost
          */
         public Builder doPost(String url) {
-            HttpUriRequest httpRequest = null;
             try {
-                httpRequest = HttpUtil.doPost(url, this.headers, this.params, this.jsonObject, this.contentType, this.charset);
+                this.httpRequest = HttpUtil.doPost(url, this.headers, this.params, this.jsonObject, this.contentType, this.charset);
             } catch (HttpUtilClosableException e) {
                 e.printStackTrace();
             }
-            return execute(httpRequest);
+            return execute();
         }
 
         /**
          * http请求
          *
-         * @param httpRequest 请求
          * @return
          */
-        private Builder execute(HttpUriRequest httpRequest) {
-            if (httpRequest != null) {
+        private Builder execute() {
+            if (this.httpRequest != null) {
                 try {
                     //请求client
-                    CloseableHttpClient httpClient = this.httpUtil.httpClient;
-                    if (sslContext != null) {
-                        httpClient = this.httpUtil.getHttpClient(sslContext);
+                    CloseableHttpClient httpClient;
+                    if (this.sslContext != null) {
+                        httpClient = this.httpUtil.getHttpClient(this.sslContext);
+                    } else {
+                        httpClient = this.httpUtil.httpClient;
                     }
-                    this.httpResponse = httpClient.execute(httpRequest);
+                    this.httpResponse = httpClient.execute(this.httpRequest);
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -607,6 +624,18 @@ public class HttpUtil {
                 }
             }
             return this;
+        }
+
+        /**
+         * 获取请求连接
+         *
+         * @return
+         */
+        public String getUrl() {
+            if (this.httpResponse != null) {
+                return this.httpRequest.getURI().toString();
+            }
+            return null;
         }
 
         /**
@@ -642,31 +671,6 @@ public class HttpUtil {
                 }
             }
             return this;
-        }
-
-        /**
-         * 获取响应头
-         *
-         * @param keys
-         * @return
-         */
-        public Map<String, String> getHeaders(String... keys) {
-            Map<String, String> map = new HashMap<>();
-            this.getHeaders(map, keys);
-            this.close();
-            return map;
-        }
-
-        /**
-         * 获取响应头
-         *
-         * @return
-         */
-        public Map<String, String> getHeaders() {
-            Map<String, String> map = new HashMap<>();
-            this.getHeaders(map);
-            this.close();
-            return map;
         }
 
         /**
@@ -726,16 +730,14 @@ public class HttpUtil {
         /**
          * 返回数据 String
          *
-         * @param enc The name of a supported
-         *    <a href="../lang/package-summary.html#charenc">character
-         *    encoding</a>.
+         * @param defaultCharset
          * @return
          */
-        public String toJson(String enc) {
+        public String toJson(String defaultCharset) {
             String json = null;
             if (this.httpResponse != null) {
                 try {
-                    json = EntityUtils.toString(this.httpResponse.getEntity(), enc);
+                    json = EntityUtils.toString(this.httpResponse.getEntity(), defaultCharset);
                 } catch (IOException e) {
                     e.printStackTrace();
                 } finally {
@@ -835,9 +837,9 @@ public class HttpUtil {
         }
 
         /**
-         * 关闭资源
+         * 释放资源
          */
-        public void close() {
+        public void close()  {
             if (this.httpResponse != null) {
                 try {
                     this.httpResponse.close();
