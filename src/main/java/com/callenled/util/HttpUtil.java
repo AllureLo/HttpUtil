@@ -301,7 +301,12 @@ public class HttpUtil {
         }
         // 设置请求参数
         if (jsonObject != null) {
-            String json = GsonUtil.gsonString(jsonObject);
+            String json;
+            if (jsonObject instanceof String) {
+                json = (String) jsonObject;
+            } else {
+                json = GsonUtil.gsonString(jsonObject);
+            }
             // 请求头
             httpPost.setHeader(HTTP.CONTENT_TYPE, "application/json");
             // 设置参数
